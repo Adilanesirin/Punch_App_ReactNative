@@ -1,4 +1,3 @@
-// Punch.tsx
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
@@ -17,92 +16,50 @@ import {
 const Punch = () => {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [lastPunch, setLastPunch] = useState('Not recorded');
-  const [todayHours, setTodayHours] = useState('0h 0m');
-  const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
-  const [locationAddress, setLocationAddress] = useState<any>(null);
-  const [userCredentials, setUserCredentials] = useState<{ userId: string; password: string } | null>(null);
   const [todayStatus, setTodayStatus] = useState<any>(null);
   const [attendanceId, setAttendanceId] = useState<string | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<any>(null);
+  const [locationAddress, setLocationAddress] = useState<any>(null);
+  const [userCredentials, setUserCredentials] = useState<any>(null);
 
-  /* ---------- life-cycle ---------- */
+  // Break punch state
+  const [breakIn, setBreakIn] = useState<string | null>(null);
+  const [breakOut, setBreakOut] = useState<string | null>(null);
+
   useEffect(() => {
     getCurrentLocation();
     getUserCredentials();
     loadTodayStatus();
+    loadBreakStatus();
   }, []);
 
-  /* ---------- helpers ---------- */
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
   const loadTodayStatus = async () => {
-    try {
-      const todayKey = `punch_data_${getTodayDateString()}`;
-      const raw = await AsyncStorage.getItem(todayKey);
-      const storedAttendanceId = await AsyncStorage.getItem('current_attendance_id');
-
-      let record = raw ? JSON.parse(raw) : { date: getTodayDateString(), punchIn: null, punchOut: null, totalHours: '0h 0m' };
-
-      setTodayStatus(record);
-      setAttendanceId(storedAttendanceId);
-
-      if (record.punchOut) {
-        setLastPunch(`Punch Out at ${new Date(record.punchOut.time).toLocaleTimeString()}`);
-      } else if (record.punchIn) {
-        setLastPunch(`Punch In at ${new Date(record.punchIn.time).toLocaleTimeString()}`);
-      }
-      setTodayHours(record.totalHours || '0h 0m');
-    } catch (e) {
-      console.error('loadTodayStatus', e);
-    }
+    const key = `punch_data_${getTodayDateString()}`;
+    const raw = await AsyncStorage.getItem(key);
+    const data = raw ? JSON.parse(raw) : {};
+    setTodayStatus(data);
+    setAttendanceId(await AsyncStorage.getItem('current_attendance_id'));
   };
 
-  const savePunchData = async (type: 'in' | 'out', data: any) => {
-    try {
-      const todayKey = `punch_data_${getTodayDateString()}`;
-      let record = JSON.parse((await AsyncStorage.getItem(todayKey)) || '{}');
-
-      record.date = getTodayDateString();
-      if (type === 'in') {
-        record.punchIn = { time: new Date().toISOString(), ...data };
-        record.punchOut = null; // always clear
-      } else {
-        record.punchOut = { time: new Date().toISOString(), ...data };
-      }
-
-      if (record.punchIn && record.punchOut) {
-        const ms = new Date(record.punchOut.time).getTime() - new Date(record.punchIn.time).getTime();
-        const h = Math.floor(ms / (1000 * 60 * 60));
-        const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-        record.totalHours = `${h}h ${m}m`;
-      } else {
-        record.totalHours = '0h 0m';
-      }
-
-      await AsyncStorage.setItem(todayKey, JSON.stringify(record));
-      setTodayHours(record.totalHours);
-      return record;
-    } catch (e) {
-      console.error('savePunchData', e);
-      throw e;
-    }
+  const loadBreakStatus = async () => {
+    const breakInTime = await AsyncStorage.getItem('break_in');
+    const breakOutTime = await AsyncStorage.getItem('break_out');
+    setBreakIn(breakInTime);
+    setBreakOut(breakOutTime);
   };
 
-  /* ---------- location ---------- */
   const getCurrentLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Location required');
-      return;
-    }
+    if (status !== 'granted') return;
     const loc = await Location.getCurrentPositionAsync({});
     setCurrentLocation(loc);
     const [addr] = await Location.reverseGeocodeAsync(loc.coords);
     setLocationAddress({
-      city: addr?.city || addr?.district || 'Unknown',
-      fullAddress: `${addr?.street || ''} ${addr?.city || ''} ${addr?.region || ''}`.trim(),
-      district: addr?.district || addr?.city,
-      state: addr?.region || 'Kerala',
+      city: addr?.city || '',
+      fullAddress: `${addr?.street || ''}, ${addr?.city || ''}`,
+      state: addr?.region || '',
     });
   };
 
@@ -111,60 +68,58 @@ const Punch = () => {
       SecureStore.getItemAsync('userId'),
       SecureStore.getItemAsync('password'),
     ]);
-    if (!uid || !pwd) {
-      Alert.alert('Authentication Required', 'Please log in again', [
-        { text: 'OK', onPress: () => router.replace('/login') },
-      ]);
-      return;
-    }
+    if (!uid || !pwd) return;
     setUserCredentials({ userId: uid, password: pwd });
   };
 
-  /* ---------- api ---------- */
-  const makeApiCall = async (endpoint: string, data: any) => {
-    const body = JSON.stringify(data);
-    console.log('POST', endpoint, body);
-    let res = await fetch(endpoint, {
+  const makeApiCall = async (url: string, data: any) => {
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error('Failed');
     return res.json();
   };
 
-  /* ---------- handlers ---------- */
-  const handlePunchIn = async () => {
-    if (!currentLocation || !userCredentials) return;
+  const savePunchData = async (type: 'in' | 'out', data: any) => {
+    const key = `punch_data_${getTodayDateString()}`;
+    let record = JSON.parse((await AsyncStorage.getItem(key)) || '{}');
+    const now = new Date().toISOString();
+    if (type === 'in') record.punchIn = { time: now, ...data };
+    else record.punchOut = { time: now, ...data };
+    await AsyncStorage.setItem(key, JSON.stringify(record));
+    setTodayStatus(record);
+    return record;
+  };
+
+  const handlePunch = async (type: 'in' | 'out') => {
+    if (!userCredentials || !currentLocation) return;
     setIsLoading(true);
     try {
       const payload = {
         userid: userCredentials.userId,
         password: userCredentials.password,
-        location: locationAddress?.city || 'Current Location',
+        location: locationAddress?.city || '',
         latitude: currentLocation.coords.latitude.toString(),
         longitude: currentLocation.coords.longitude.toString(),
-        enhanced_location: JSON.stringify({
-          address: locationAddress?.fullAddress,
-          city: locationAddress?.city,
-          district: locationAddress?.district,
-          state: locationAddress?.state,
-          timezone: 'Asia/Kolkata',
-        }),
+        enhanced_location: JSON.stringify(locationAddress),
       };
 
-      const res = await makeApiCall('https://myimc.in/flutter/punch-in/', payload);
-      const id = res.attendance?.id || res.attendance?.employee || res.id;
-      if (id) {
-        setAttendanceId(id.toString());
-        await AsyncStorage.setItem('current_attendance_id', id.toString());
+      const endpoint = type === 'in'
+        ? 'https://myimc.in/flutter/punch-in/'
+        : 'https://myimc.in/flutter/punch-out/';
+      const res = await makeApiCall(endpoint, payload);
+      if (res.attendance?.id) {
+        setAttendanceId(res.attendance.id.toString());
+        await AsyncStorage.setItem('current_attendance_id', res.attendance.id.toString());
+      } else if (type === 'out') {
+        await AsyncStorage.removeItem('current_attendance_id');
+        setAttendanceId(null);
       }
 
-      const updated = await savePunchData('in', payload);
-      setTodayStatus(updated);
-      setLastPunch(`Punch In at ${new Date().toLocaleTimeString()}`);
-      Alert.alert('Punch In', 'Success!');
-      // tell Home to refresh when user goes back
+      await savePunchData(type, payload);
+      Alert.alert(`Punch ${type === 'in' ? 'In' : 'Out'} successful`);
       await AsyncStorage.setItem('force_home_refresh', Date.now().toString());
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -173,163 +128,176 @@ const Punch = () => {
     }
   };
 
-  const handlePunchOut = async () => {
-    if (!currentLocation || !userCredentials) return;
-    setIsLoading(true);
-    try {
-      const storedId = attendanceId || (await AsyncStorage.getItem('current_attendance_id'));
-      const payload = {
-        userid: userCredentials.userId,
-        password: userCredentials.password,
-        location: locationAddress?.city || 'Current Location',
-        latitude: currentLocation.coords.latitude.toString(),
-        longitude: currentLocation.coords.longitude.toString(),
-        enhanced_location: JSON.stringify({
-          address: locationAddress?.fullAddress,
-          city: locationAddress?.city,
-          district: locationAddress?.district,
-          state: locationAddress?.state,
-          timezone: 'Asia/Kolkata',
-        }),
-        ...(storedId && { attendance_id: storedId, employee: storedId, id: storedId }),
-      };
-
-      await makeApiCall('https://myimc.in/flutter/punch-out/', payload);
-      await AsyncStorage.removeItem('current_attendance_id');
-      setAttendanceId(null);
-
-      const updated = await savePunchData('out', payload);
-      setTodayStatus(updated);
-      setLastPunch(`Punch Out at ${new Date().toLocaleTimeString()}`);
-      Alert.alert('Punch Out', 'Success!');
-      await AsyncStorage.setItem('force_home_refresh', Date.now().toString());
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setIsLoading(false);
+  const handleBreakPunch = async (type: 'in' | 'out') => {
+    const now = new Date().toISOString();
+    if (type === 'in') {
+      await AsyncStorage.setItem('break_in', now);
+      setBreakIn(now);
+    } else {
+      await AsyncStorage.setItem('break_out', now);
+      setBreakOut(now);
     }
   };
 
-  /* ---------- render helpers ---------- */
-  const canPunchIn = () => !todayStatus?.punchIn || !!todayStatus?.punchOut;
-  const canPunchOut = () => todayStatus?.punchIn && !todayStatus?.punchOut;
+  const formatTime = (ts?: string) =>
+    ts ? new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--';
 
-  /* ---------- render ---------- */
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      {/* Back Icon */}
+      <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Punch In/Out</Text>
-        <View style={{ width: 24 }} />
       </View>
 
-      <View style={styles.content}>
-        
-        {/* Buttons */}
-        <View style={styles.btnRow}>
+      {/* Center Title */}
+      <Text style={styles.pageTitle}>ATTENDANCE</Text>
+
+      {/* Main Attendance Punch */}
+      <View style={styles.card}>
+        <View style={styles.buttonRow}>
           <TouchableOpacity
-            style={[styles.btn, styles.inBtn, !canPunchIn() && styles.disabled]}
-            onPress={handlePunchIn}
-            disabled={!canPunchIn() || isLoading}
+            style={[styles.btn, styles.inBtn]}
+            onPress={() => handlePunch('in')}
+            disabled={isLoading}
           >
             {isLoading ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="log-in" size={24} color="#fff" />
-                <Text style={styles.btnTxt}>Punch In</Text>
+                <Ionicons name="log-in-outline" size={20} color="#fff" />
+                <Text style={styles.btnText}>Punch In</Text>
               </>
             )}
           </TouchableOpacity>
-
           <TouchableOpacity
-            style={[styles.btn, styles.outBtn, !canPunchOut() && styles.disabled]}
-            onPress={handlePunchOut}
-            disabled={!canPunchOut() || isLoading}
+            style={[styles.btn, styles.outBtn]}
+            onPress={() => handlePunch('out')}
+            disabled={isLoading}
           >
             {isLoading ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="log-out" size={24} color="#fff" />
-                <Text style={styles.btnTxt}>Punch Out</Text>
+                <Ionicons name="log-out-outline" size={20} color="#fff" />
+                <Text style={styles.btnText}>Punch Out</Text>
               </>
             )}
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Bottom Tabs */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity>
-          <Ionicons name="finger-print" size={28} color="#007bff" />
-          <Text style={[styles.tabLabel, styles.activeLabel]}>Punch</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/home')}>
-          <Ionicons name="home" size={28} color="#888" />
-          <Text style={styles.tabLabel}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/request')}>
-          <Ionicons name="document-text" size={28} color="#888" />
-          <Text style={styles.tabLabel}>Request</Text>
-        </TouchableOpacity>
+      {/* Break Punch Card */}
+      <View style={styles.breakCard}>
+        <Text style={styles.breakHeading}>BREAK PUNCH TIME</Text>
+
+        {/* Time Row */}
+        <View style={styles.timeRow}>
+          <Text style={styles.timeLabel}>In: {formatTime(breakIn)}</Text>
+          <Text style={styles.timeLabel}>Out: {formatTime(breakOut)}</Text>
+        </View>
+
+        {/* Buttons */}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity style={[styles.btn, styles.inBtn]} onPress={() => handleBreakPunch('in')}>
+            <Ionicons name="log-in-outline" size={20} color="#fff" />
+            <Text style={styles.btnText}>Break In</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.btn, styles.outBtn]} onPress={() => handleBreakPunch('out')}>
+            <Ionicons name="log-out-outline" size={20} color="#fff" />
+            <Text style={styles.btnText}>Break Out</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Status */}
+        <Text style={styles.breakStatus}>
+          {breakIn && !breakOut
+            ? 'Break in progress'
+            : breakIn && breakOut
+            ? 'Break completed'
+            : 'Break not started'}
+        </Text>
       </View>
     </View>
   );
 };
 
-/* ---------- styles ---------- */
+export default Punch;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9f9f9' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
+  container: { flex: 1, backgroundColor:"#1f2184ff"},
+  topBar: {
     paddingTop: 50,
-    paddingBottom: 15,
-    backgroundColor: '#fff',
-    elevation: 3,
+    paddingHorizontal: 20,
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
-  content: { flex: 1, padding: 20, justifyContent: 'center' },
+  pageTitle: {
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginVertical: 20,
+    color: '#fff',
+  },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 15,
-    elevation: 2,
+    margin: 20,
+    padding: 25,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
   },
-  cardTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 6 },
-  status: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  hours: { fontSize: 14, color: '#666' },
-  loc: { fontSize: 16, color: '#333' },
-  locSub: { fontSize: 14, color: '#888' },
-  btnRow: { flexDirection: 'row', gap: 16 },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 20,
+  },
   btn: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 16,
     borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
   },
   inBtn: { backgroundColor: '#28a745' },
   outBtn: { backgroundColor: '#dc3545' },
-  disabled: { backgroundColor: '#6c757d', opacity: 0.6 },
-  btnTxt: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
-  tabBar: {
+  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  breakCard: {
+    marginHorizontal: 20,
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    marginBottom: 30,
+  },
+  breakHeading: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+    color: '#222',
+  },
+  timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f8f8f8',
+    marginBottom: 12,
   },
-  tabLabel: { fontSize: 12, color: '#888', textAlign: 'center' },
-  activeLabel: { color: '#007bff', fontWeight: 'bold' },
+  timeLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  breakStatus: {
+    fontSize: 16,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    color: '#555',
+    marginTop: 15,
+  },
 });
-
-export default Punch;
