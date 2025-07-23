@@ -1,9 +1,13 @@
+/* eslint-disable prettier/prettier */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   RefreshControl,
   ScrollView,
@@ -13,45 +17,72 @@ import {
   View,
 } from 'react-native';
 
+interface UserCredentials {
+  userId: string;
+  password: string;
+}
+
+interface PunchData {
+  time: string;
+  location: any;
+}
+
+interface TodayStatus {
+  date: string;
+  punchIn: PunchData | null;
+  punchOut: PunchData | null;
+  totalHours: string;
+}
+
 export default function Home() {
   const router = useRouter();
   const { username } = useLocalSearchParams<{ username: string }>();
 
-  const [todayStatus, setTodayStatus] = useState<any>(null);
+  const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileCard, setShowProfileCard] = useState(false);
+  const [userCredentials, setUserCredentials] = useState<UserCredentials | null>(null);
 
-  useEffect(() => {
-    loadTodayStatus();
-    const interval = setInterval(loadTodayStatus, 30000);
-
-    const listener = setInterval(async () => {
-      const ts = await AsyncStorage.getItem('force_home_refresh');
-      if (ts) {
-        await AsyncStorage.removeItem('force_home_refresh');
-        loadTodayStatus();
-      }
-    }, 1000);
-
-    return () => {
-      clearInterval(interval);
-      clearInterval(listener);
-    };
-  }, []);
+  /* ---------- loading overlay states ---------- */
+  const [loadingTab, setLoadingTab] = useState<string | null>(null);
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  const loadTodayStatus = async () => {
+  const getUserSpecificKey = (baseKey: string) => {
+    return userCredentials?.userId ? `${baseKey}_${userCredentials.userId}` : baseKey;
+  };
+
+  const getUserCredentials = async () => {
     try {
-      const todayKey = `punch_data_${getTodayDateString()}`;
+      const [uid, pwd] = await Promise.all([
+        SecureStore.getItemAsync('userId'),
+        SecureStore.getItemAsync('password'),
+      ]);
+      if (uid && pwd) {
+        setUserCredentials({ userId: uid, password: pwd });
+      } else {
+        router.replace('/login');
+      }
+    } catch (error) {
+      console.error('Error getting user credentials:', error);
+      router.replace('/login');
+    }
+  };
+
+  const loadTodayStatus = async () => {
+    if (!userCredentials?.userId) return;
+    try {
+      const todayKey = getUserSpecificKey(`punch_data_${getTodayDateString()}`);
       const raw = await AsyncStorage.getItem(todayKey);
       if (raw) {
-        setTodayStatus(JSON.parse(raw));
+        const parsedData = JSON.parse(raw);
+        setTodayStatus(parsedData);
       } else {
         await fetchTodayStatusFromAPI();
       }
-    } catch (e) {
+    } catch (error) {
+      console.error('Error loading today status:', error);
       setTodayStatus({
         date: getTodayDateString(),
         punchIn: null,
@@ -64,26 +95,35 @@ export default function Home() {
   };
 
   const fetchTodayStatusFromAPI = async () => {
-    setTodayStatus({
+    const defaultStatus: TodayStatus = {
       date: getTodayDateString(),
       punchIn: null,
       punchOut: null,
       totalHours: '0h 0m',
-    });
+    };
+    setTodayStatus(defaultStatus);
+    if (userCredentials?.userId) {
+      const todayKey = getUserSpecificKey(`punch_data_${getTodayDateString()}`);
+      await AsyncStorage.setItem(todayKey, JSON.stringify(defaultStatus));
+    }
   };
 
-  const onRefresh = React.useCallback(() => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadTodayStatus().finally(() => setRefreshing(false));
-  }, []);
+  }, [userCredentials]);
 
   const formatTime = (timeString?: string) => {
     if (!timeString) return 'Not recorded';
-    return new Date(timeString).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    try {
+      return new Date(timeString).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch {
+      return 'Invalid time';
+    }
   };
 
   const formatLocation = (loc: any): string => {
@@ -108,102 +148,90 @@ export default function Home() {
 
   const getStatusColor = () => {
     switch (getWorkingStatus()) {
-      case 'Currently working':
-        return '#28a745';
-      case 'Work completed':
-        return '#007bff';
-      default:
-        return '#6c757d';
+      case 'Currently working': return '#28a745';
+      case 'Work completed': return '#007bff';
+      default: return '#6c757d';
     }
   };
 
-  const handleLogout = () => {
-    setShowProfileCard(false);
-    router.replace('/login');
+  const handleLogout = async () => {
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await SecureStore.deleteItemAsync('userId');
+          await SecureStore.deleteItemAsync('password');
+          setUserCredentials(null);
+          setTodayStatus(null);
+          setShowProfileCard(false);
+          router.replace('/login');
+        },
+      },
+    ]);
   };
-  const handlePunchTab = () => router.push('/punch');
-  const handleRequestTab = () => router.push('/request');
 
-  const renderPunchSection = (type: 'in' | 'out', data: any) => (
-    <View style={styles.punchSection}>
-      <View
-        style={[
-          styles.punchIconContainer,
-          { backgroundColor: type === 'in' ? '#d0f0d3' : '#fddada' },
-        ]}
-      >
-        <Ionicons
-          name={type === 'in' ? 'log-in-outline' : 'log-out-outline'}
-          size={24}
-          color={type === 'in' ? '#4CAF50' : '#F44336'}
-        />
-      </View>
-      <View style={styles.punchContent}>
-        <Text style={[styles.punchLabel, { color: type === 'in' ? '#4CAF50' : '#F44336' }]}>
-          {type === 'in' ? 'Punch In' : 'Punch Out'}
-        </Text>
-        <Text style={styles.punchTime}>{formatTime(data?.time)}</Text>
-        <Text style={styles.punchLocation}>{formatLocation(data?.location)}</Text>
-      </View>
-    </View>
-  );
+  /* ---------- Instagram-style navigation ---------- */
+  const handleTabNavigation = async (route: string) => {
+    if (loadingTab) return;
+    setLoadingTab(route);
+    await new Promise((res) => setTimeout(res, 300)); // mimic loading
+    router.push(`/${route}`);
+    setLoadingTab(null);
+  };
 
-  const renderTodayStatusCard = () => (
-    <BlurView intensity={90} tint="light" style={styles.miniCard}>
-      <View style={styles.transparentCardContent}>
-        <Text style={styles.miniTitle}>Today's Status</Text>
-        <Text style={styles.miniDate}>
-          {new Date().toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-          })}
-        </Text>
-        <View style={styles.rowContainer}>
-          {renderPunchSection('in', todayStatus?.punchIn)}
-          <View style={styles.rowSeparator} />
-          {renderPunchSection('out', todayStatus?.punchOut)}
-        </View>
-      </View>
-    </BlurView>
-  );
+  useEffect(() => {
+    getUserCredentials();
+  }, []);
 
-  const renderProfileCard = () => (
-    <Modal
-      visible={showProfileCard}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setShowProfileCard(false)}
-    >
-      <TouchableOpacity
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setShowProfileCard(false)}
-      >
-        <BlurView intensity={90} style={styles.profileCard}>
-          <View style={styles.profileContent}>
-            <View style={styles.profileHeader}>
-              <View style={styles.profileIconContainer}>
-                <Ionicons name="person" size={40} color="#1f2184ff" />
-              </View>
-              <Text style={styles.profileName}>Hello, {username || 'ADILA NESIRIN'}</Text>
-            </View>
-            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={20} color="#fff" style={styles.logoutIcon} />
-              <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
-          </View>
-        </BlurView>
-      </TouchableOpacity>
-    </Modal>
-  );
+  useEffect(() => {
+    if (userCredentials?.userId) {
+      loadTodayStatus();
+      const statusInterval = setInterval(loadTodayStatus, 30000);
+      const refreshListener = setInterval(async () => {
+        try {
+          const refreshKey = getUserSpecificKey('force_home_refresh');
+          const ts = await AsyncStorage.getItem(refreshKey);
+          if (ts) {
+            await AsyncStorage.removeItem(refreshKey);
+            loadTodayStatus();
+          }
+        } catch (error) {
+          console.error('Error in refresh listener:', error);
+        }
+      }, 1000);
+      return () => {
+        clearInterval(statusInterval);
+        clearInterval(refreshListener);
+      };
+    }
+  }, [userCredentials]);
+
+  /* ---------- UI ---------- */
+  if (isLoading && !userCredentials) {
+    return (
+      <View style={[homeStyles.container, homeStyles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#ffffff" />
+        <Text style={homeStyles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={[styles.container, { backgroundColor: '#1f2184ff' }]}>
-      <View style={styles.overlay}>
-        <View style={styles.header}>
+    <View style={[homeStyles.container, { backgroundColor: '#1a1a2e' }]}>
+      {/* ---------- loading overlay ---------- */}
+      {loadingTab && (
+        <View style={homeStyles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={homeStyles.loadingOverlayTxt}>Loading…</Text>
+        </View>
+      )}
+
+      <View style={homeStyles.overlay}>
+        <View style={homeStyles.header}>
           <TouchableOpacity
-            style={styles.profileIconButton}
+            style={homeStyles.profileIconButton}
             onPress={() => setShowProfileCard(true)}
           >
             <Ionicons name="person-circle" size={35} color="#ffffffff" />
@@ -211,28 +239,117 @@ export default function Home() {
         </View>
 
         <ScrollView
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          contentContainerStyle={styles.cardWrapper}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+          }
+          contentContainerStyle={homeStyles.cardWrapper}
         >
-          {renderTodayStatusCard()}
+          <BlurView intensity={90} tint="light" style={homeStyles.miniCard}>
+            <View style={homeStyles.transparentCardContent}>
+              <View style={homeStyles.cardHeader}>
+                <Text style={homeStyles.miniTitle}>Today's Status</Text>
+                <TouchableOpacity style={homeStyles.statusIndicator} onPress={onRefresh}>
+                  <Ionicons name="refresh-circle" size={24} color="#4CAF50" />
+                </TouchableOpacity>
+              </View>
+              <Text style={homeStyles.miniDate}>
+                {new Date().toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </Text>
+              <View style={homeStyles.statusContainer}>
+                <View style={homeStyles.statusRow}>
+                  <View style={homeStyles.statusLeft}>
+                    <Ionicons name="log-in" size={16} color="#4CAF50" />
+                    <Text style={homeStyles.statusLabel}>Punch In:</Text>
+                  </View>
+                  <Text style={homeStyles.statusValue}>
+                    {todayStatus?.punchIn ? formatTime(todayStatus.punchIn.time) : 'Not recorded'}
+                  </Text>
+                </View>
+                <View style={homeStyles.statusRow}>
+                  <View style={homeStyles.statusLeft}>
+                    <Ionicons name="location" size={16} color="#4CAF50" />
+                    <Text style={homeStyles.statusLabel}>Punch In Location:</Text>
+                  </View>
+                  <Text style={[homeStyles.statusValue, homeStyles.locationValue]}>
+                    {todayStatus?.punchIn ? formatLocation(todayStatus.punchIn.location) : 'N/A'}
+                  </Text>
+                </View>
+                <View style={homeStyles.divider} />
+                <View style={homeStyles.statusRow}>
+                  <View style={homeStyles.statusLeft}>
+                    <Ionicons name="log-out" size={16} color="#F44336" />
+                    <Text style={homeStyles.statusLabel}>Punch Out:</Text>
+                  </View>
+                  <Text style={homeStyles.statusValue}>
+                    {todayStatus?.punchOut ? formatTime(todayStatus.punchOut.time) : 'Not punched out yet'}
+                  </Text>
+                </View>
+                <View style={homeStyles.statusRow}>
+                  <View style={homeStyles.statusLeft}>
+                    <Ionicons name="location" size={16} color="#F44336" />
+                    <Text style={homeStyles.statusLabel}>Punch Out Location:</Text>
+                  </View>
+                  <Text style={[homeStyles.statusValue, homeStyles.locationValue]}>
+                    {todayStatus?.punchOut ? formatLocation(todayStatus.punchOut.location) : 'Not punched out yet'}
+                  </Text>
+                </View>
+                <View style={homeStyles.workingStatusContainer}>
+                  <View style={[homeStyles.statusDot, { backgroundColor: getStatusColor() }]} />
+                  <Text style={[homeStyles.workingStatus, { color: getStatusColor() }]}>
+                    {getWorkingStatus()}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </BlurView>
         </ScrollView>
 
-        {renderProfileCard()}
+        <Modal
+          visible={showProfileCard}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowProfileCard(false)}
+        >
+          <TouchableOpacity
+            style={homeStyles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowProfileCard(false)}
+          >
+            <BlurView intensity={90} style={homeStyles.profileCard}>
+              <TouchableOpacity activeOpacity={1} style={homeStyles.profileContent}>
+                <View style={homeStyles.profileHeader}>
+                  <View style={homeStyles.profileIconContainer}>
+                    <Ionicons name="person" size={40} color="#1a1a2e" />
+                  </View>
+                  <Text style={homeStyles.profileName}>Hello, {username || 'User'}</Text>
+                </View>
+                <TouchableOpacity style={homeStyles.logoutButton} onPress={handleLogout}>
+                  <Ionicons name="log-out-outline" size={20} color="#fff" style={homeStyles.logoutIcon} />
+                  <Text style={homeStyles.logoutText}>Logout</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </BlurView>
+          </TouchableOpacity>
+        </Modal>
 
-        <View style={styles.tabBar}>
-          <TouchableOpacity onPress={handlePunchTab}>
-            <Ionicons name="finger-print" size={28} color="#888" />
-            <Text style={styles.tabLabel}>Punch</Text>
+        <View style={homeStyles.tabBar}>
+          <TouchableOpacity onPress={() => handleTabNavigation('punch')} style={homeStyles.tabButton}>
+            <Ionicons name="finger-print" size={35} color="#fff" />
+          <Text style={[homeStyles.tabLabel,{color:"#fff"}]}>Punch</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => {}}>
-            <Ionicons name="home" size={28} color="#356effc8" />
-            <Text style={[styles.tabLabel, styles.activeTabLabel]}>Home</Text>
+          <TouchableOpacity onPress={() => { }} style={homeStyles.tabButton}>
+            <Ionicons name="home" size={35} color="#00ddff" />
+              <Text style={[homeStyles.tabLabel, homeStyles.activeTabLabel,{color: '#00ddff'}]}>Home</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={handleRequestTab}>
-            <Ionicons name="document-text" size={28} color="#888" />
-            <Text style={styles.tabLabel}>Request</Text>
+          <TouchableOpacity onPress={() => handleTabNavigation('request')} style={homeStyles.tabButton}>
+            <Ionicons name="document-text" size={35} color="#fff" />
+            <Text style={[homeStyles.tabLabel,{color:"#fff"}]}>Request</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -240,16 +357,19 @@ export default function Home() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
+const homeStyles = StyleSheet.create({
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    zIndex: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'transparent', // ✅ No white opacity
-  },
+  loadingOverlayTxt: { color: '#fff', marginTop: 8 },
+  container: { flex: 1, width: '100%', height: '100%' },
+  overlay: { flex: 1, backgroundColor: 'transparent' },
+  loadingContainer: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' },
+  loadingText: { color: '#ffffff', marginTop: 10, fontSize: 16 },
   header: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -258,8 +378,6 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingTop: 50,
     backgroundColor: 'rgba(255, 255, 255, 0.01)',
-    borderBottomWidth: 0,
-    borderBottomColor: 'rgba(233, 234, 238, 0.82)',
   },
   profileIconButton: { padding: 5 },
   cardWrapper: {
@@ -267,10 +385,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingVertical: 20,
   },
   miniCard: {
     width: '100%',
-    maxWidth: 350,
+    maxWidth: 380,
     borderRadius: 20,
     overflow: 'hidden',
     elevation: 8,
@@ -283,86 +402,50 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   transparentCardContent: {
-    paddingVertical: 35,
-    paddingHorizontal: 30,
-    backgroundColor: 'rgba(250, 250, 250, 0.9)',
+    paddingVertical: 25,
+    paddingHorizontal: 25,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
   },
-  miniTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000', // ✅ Changed to black
-    textAlign: 'center',
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  miniDate: {
-    fontSize: 14,
-    color: '#000', // ✅ Changed to black
-    textAlign: 'center',
-    marginBottom: 30,
-    fontWeight: '500',
-  },
-  rowContainer: {
-    flexDirection: 'column',
-    backgroundColor: 'rgba(249, 253, 253, 0.95)',
+  miniTitle: { fontSize: 22, fontWeight: 'bold', color: '#1a1a1a' },
+  statusIndicator: { padding: 4 },
+  miniDate: { fontSize: 14, color: '#666', marginBottom: 20, fontWeight: '500' },
+  statusContainer: {
+    backgroundColor: 'rgba(248, 250, 252, 0.8)',
     borderRadius: 16,
-    padding: 25,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(15, 5, 1, 0.65)',
+    borderColor: 'rgba(226, 232, 240, 0.8)',
   },
-  punchSection: {
-    flex: 1,
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 32,
   },
-  rowSeparator: {
-    height: 1,
-    width: '100%',
-    backgroundColor: 'rgba(11, 9, 8, 0.59)',
-    marginVertical: 20,
-  },
-  punchIconContainer: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
+  statusLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  statusLabel: { fontSize: 14, color: '#374151', fontWeight: '500', marginLeft: 8 },
+  statusValue: { fontSize: 14, color: '#1f2937', fontWeight: '600', textAlign: 'right', flex: 1 },
+  locationValue: { fontSize: 12, color: '#6b7280', textDecorationLine: 'underline' },
+  divider: { height: 1, backgroundColor: 'rgba(229, 231, 235, 0.8)', marginVertical: 12 },
+  workingStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 15,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(229, 231, 235, 0.6)',
   },
-  punchContent: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  punchLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  punchTime: {
-    fontSize: 14,
-    color: '#555',
-    fontWeight: '600',
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  punchLocation: {
-    fontSize: 12,
-    color: '#777',
-    textAlign: 'center',
-    lineHeight: 16,
-  },
+  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+  workingStatus: { fontSize: 14, fontWeight: '600' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
@@ -388,10 +471,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.9)',
   },
-  profileHeader: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
+  profileHeader: { alignItems: 'center', marginBottom: 30 },
   profileIconContainer: {
     width: 80,
     height: 80,
@@ -406,12 +486,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
   },
-  profileName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-  },
+  profileName: { fontSize: 18, fontWeight: '600', color: '#333', textAlign: 'center' },
   logoutButton: {
     backgroundColor: '#ff4444',
     paddingVertical: 12,
@@ -422,31 +497,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 120,
   },
-  logoutIcon: {
-    marginRight: 8,
-  },
-  logoutText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  logoutIcon: { marginRight: 8 },
+  logoutText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   tabBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    paddingVertical: 10,
-    backgroundColor: '#ffffff',
+    paddingVertical: 20,
+    backgroundColor: '#16213e',
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
+    
   },
-  tabLabel: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  activeTabLabel: {
-    color: '#000607ff',
-    fontWeight: 'bold',
-  },
+  tabButton: { alignItems: 'center', justifyContent: 'center', paddingVertical: 0, paddingHorizontal: 10,marginTop: -5, },
+  tabLabel: { fontSize: 12, color: '#888', marginTop: 8, textAlign: 'center' },
+  activeTabLabel: { color: '#000607ff', fontWeight: 'bold' },
 });

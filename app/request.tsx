@@ -1,282 +1,313 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useState } from "react";
+/* eslint-disable prettier/prettier */
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View
-} from "react-native";
+  View,
+} from 'react-native';
 
-export default function Request() {
+const Request = () => {
   const router = useRouter();
-  const [selectedRequest, setSelectedRequest] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
+  const [loadingTab, setLoadingTab] = useState<string | null>(null);
+  const [loadingRequest, setLoadingRequest] = useState<string | null>(null);
 
-  const handleBack = () => {
-    router.back();
+  const handleTabNavigation = async (route: string) => {
+    if (loadingTab) return;
+    setLoadingTab(route);
+    await new Promise((res) => setTimeout(res, 300));
+    router.push(`/${route}`);
+    setLoadingTab(null);
   };
 
-  const handleSubmitRequest = () => {
-    if (!selectedRequest) {
-      Alert.alert("Error", "Please select a request type");
-      return;
+  const handleRequestNavigation = async (requestType: string) => {
+    if (loadingRequest) return;
+    setLoadingRequest(requestType);
+    await new Promise((res) => setTimeout(res, 300));
+    switch (requestType) {
+      case 'leave':
+        router.push('/leave-request');
+        break;
+      case 'late':
+        router.push('/late-request');
+        break;
+      case 'early':
+        router.push('/early-request');
+        break;
     }
-    if (!reason.trim()) {
-      Alert.alert("Error", "Please provide a reason for your request");
-      return;
-    }
-
-    Alert.alert(
-      "Request Submitted",
-      `Your ${selectedRequest} request has been submitted successfully!`,
-      [{ text: "OK", onPress: () => {
-        setSelectedRequest(null);
-        setReason("");
-      }}]
-    );
+    setLoadingRequest(null);
   };
 
-  const requestTypes = [
-    { id: "leave", title: "Leave Request", icon: "calendar-outline", color: "#007bff" },
-    { id: "overtime", title: "Overtime Request", icon: "time-outline", color: "#28a745" },
-    { id: "permission", title: "Permission Request", icon: "checkmark-circle-outline", color: "#ffc107" },
-    { id: "other", title: "Other Request", icon: "help-circle-outline", color: "#6c757d" },
-  ];
+  const handleViewRequests = async (requestType: string) => {
+    if (loadingRequest) return;
+    setLoadingRequest(`view-${requestType}`);
+    await new Promise((res) => setTimeout(res, 300));
+    switch (requestType) {
+      case 'leave':
+        router.push('/view-leave-requests');
+        break;
+      case 'late':
+        router.push('/view-late-requests');
+        break;
+      case 'early':
+        router.push('/view-early-requests');
+        break;
+    }
+    setLoadingRequest(null);
+  };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#007bff" />
+      {(loadingTab || loadingRequest) && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingOverlayTxt}>Loading…</Text>
+        </View>
+      )}
+
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Submit Request</Text>
-        <View style={styles.placeholder} />
       </View>
 
-      {/* Main Content */}
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.contentContainer}>
-          <Text style={styles.title}>📥 Request Management</Text>
-          <Text style={styles.subtitle}>Submit your workplace requests</Text>
+      <Text style={styles.pageTitle}>REQUEST</Text>
 
-          {/* Request Types */}
-          <View style={styles.requestTypesContainer}>
-            <Text style={styles.sectionTitle}>Select Request Type</Text>
-            {requestTypes.map((type) => (
-              <TouchableOpacity
-                key={type.id}
-                style={[
-                  styles.requestTypeButton,
-                  selectedRequest === type.id && styles.selectedRequestType
-                ]}
-                onPress={() => setSelectedRequest(type.id)}
-              >
-                <Ionicons 
-                  name={type.icon as any} 
-                  size={24} 
-                  color={selectedRequest === type.id ? "#fff" : type.color} 
-                />
-                <Text style={[
-                  styles.requestTypeText,
-                  selectedRequest === type.id && styles.selectedRequestTypeText
-                ]}>
-                  {type.title}
-                </Text>
-                {selectedRequest === type.id && (
-                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Reason Input */}
-          <View style={styles.reasonContainer}>
-            <Text style={styles.sectionTitle}>Reason</Text>
-            <TextInput
-              style={styles.reasonInput}
-              placeholder="Please provide a detailed reason for your request..."
-              placeholderTextColor="#999"
-              multiline
-              numberOfLines={4}
-              value={reason}
-              onChangeText={setReason}
-              textAlignVertical="top"
-            />
-          </View>
-
-          {/* Submit Button */}
-          <TouchableOpacity 
-            style={[
-              styles.submitButton,
-              (!selectedRequest || !reason.trim()) && styles.submitButtonDisabled
-            ]}
-            onPress={handleSubmitRequest}
-            disabled={!selectedRequest || !reason.trim()}
-          >
-            <Ionicons name="paper-plane-outline" size={20} color="#fff" />
-            <Text style={styles.submitButtonText}>Submit Request</Text>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Leave Row */}
+        <View style={styles.requestRow}>
+          <TouchableOpacity style={styles.requestButton} onPress={() => handleRequestNavigation('leave')} disabled={loadingRequest !== null}>
+            <LinearGradient colors={['#3a7bd5', '#00d2ff']} style={styles.gradientButton}>
+              {loadingRequest === 'leave' ? (
+                <ActivityIndicator size="large" color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.requestButtonText}>Leave</Text>
+                  <Text style={styles.requestButtonText}>Request</Text>
+                </>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
 
-          {/* Recent Requests */}
-          <View style={styles.recentRequestsContainer}>
-            <Text style={styles.sectionTitle}>Recent Requests</Text>
-            <View style={styles.recentRequestItem}>
-              <Text style={styles.recentRequestText}>No recent requests</Text>
-              <Text style={styles.recentRequestDate}>Submit your first request above</Text>
-            </View>
-          </View>
+          <TouchableOpacity style={styles.requestButton} onPress={() => handleViewRequests('leave')} disabled={loadingRequest !== null}>
+            <LinearGradient colors={['#ffffff', '#74ebd5']} style={styles.gradientButton}>
+              {loadingRequest === 'view-leave' ? (
+                <ActivityIndicator size="large" color="#000" />
+              ) : (
+                <View style={styles.viewButtonContent}>
+                  <Ionicons name="menu" size={24} color="#000" style={styles.menuIcon} />
+                  <Text style={styles.viewButtonText}>View My Leave</Text>
+                  <Text style={styles.viewButtonText}>Requests</Text>
+                </View>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* Late Row */}
+        <View style={styles.requestRow}>
+          <TouchableOpacity style={styles.requestButton} onPress={() => handleRequestNavigation('late')} disabled={loadingRequest !== null}>
+            <LinearGradient colors={['#3a7bd5', '#00d2ff']} style={styles.gradientButton}>
+              {loadingRequest === 'late' ? (
+                <ActivityIndicator size="large" color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.requestButtonText}>Late</Text>
+                  <Text style={styles.requestButtonText}>Request</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.requestButton} onPress={() => handleViewRequests('late')} disabled={loadingRequest !== null}>
+            <LinearGradient colors={['#ffffff', '#74ebd5']} style={styles.gradientButton}>
+              {loadingRequest === 'view-late' ? (
+                <ActivityIndicator size="large" color="#000" />
+              ) : (
+                <View style={styles.viewButtonContent}>
+                  <Ionicons name="menu" size={24} color="#000" style={styles.menuIcon} />
+                  <Text style={styles.viewButtonText}>View My Late</Text>
+                  <Text style={styles.viewButtonText}>Requests</Text>
+                </View>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* Early Row */}
+        <View style={styles.requestRow}>
+          <TouchableOpacity style={styles.requestButton} onPress={() => handleRequestNavigation('early')} disabled={loadingRequest !== null}>
+            <LinearGradient colors={['#3a7bd5', '#00d2ff']} style={styles.gradientButton}>
+              {loadingRequest === 'early' ? (
+                <ActivityIndicator size="large" color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.requestButtonText}>Early</Text>
+                  <Text style={styles.requestButtonText}>Request</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.requestButton} onPress={() => handleViewRequests('early')} disabled={loadingRequest !== null}>
+            <LinearGradient colors={['#ffffff', '#74ebd5']} style={styles.gradientButton}>
+              {loadingRequest === 'view-early' ? (
+                <ActivityIndicator size="large" color="#000" />
+              ) : (
+                <View style={styles.viewButtonContent}>
+                  <Ionicons name="menu" size={24} color="#000" style={styles.menuIcon} />
+                  <Text style={styles.viewButtonText}>View My Early</Text>
+                  <Text style={styles.viewButtonText}>Requests</Text>
+                </View>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Tab Bar */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity onPress={() => handleTabNavigation('punch')} disabled={loadingTab !== null} style={styles.tabButton}>
+          {loadingTab === 'punch' ? (
+            <ActivityIndicator size="small" color="#888" />
+          ) : (
+            <>
+              <Ionicons name="finger-print" size={35} color="#fff" />
+              <Text style={styles.tabLabel}>Punch</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => handleTabNavigation('home')} disabled={loadingTab !== null} style={styles.tabButton}>
+          {loadingTab === 'home' ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="home" size={35} color="#fff" />
+              <Text style={styles.tabLabel}>Home</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.tabButton}>
+          <Ionicons name="document-text" size={35} color="#00ddff" />
+          <Text style={[styles.tabLabel, styles.activeTabLabel]}>Request</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
-}
+};
+
+export default Request;
 
 const styles = StyleSheet.create({
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#15285cff',
+    zIndex: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingOverlayTxt: {
+    color: '#fff',
+    marginTop: 8,
+  },
   container: {
     flex: 1,
-    backgroundColor: "#f9f9f9",
+    backgroundColor: '#1a1a2e',
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
+  topBar: {
     paddingTop: 50,
-    paddingBottom: 20,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    paddingHorizontal: 20,
   },
-  backButton: {
-    padding: 8,
+  pageTitle: {
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginVertical: 20,
+    color: '#fff',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  placeholder: {
-    width: 40,
+  scrollView: {
+    flex: 1,
   },
   content: {
-    flex: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    paddingBottom: 100,
   },
-  contentContainer: {
-    padding: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#666",
-    marginBottom: 30,
-    textAlign: "center",
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 15,
-  },
-  requestTypesContainer: {
-    marginBottom: 30,
-  },
-  requestTypeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  selectedRequestType: {
-    backgroundColor: "#007bff",
-  },
-  requestTypeText: {
-    fontSize: 16,
-    color: "#333",
-    marginLeft: 12,
-    flex: 1,
-  },
-  selectedRequestTypeText: {
-    color: "#fff",
-  },
-  reasonContainer: {
-    marginBottom: 30,
-  },
-  reasonInput: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: "#333",
-    minHeight: 100,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  submitButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#28a745",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 30,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  submitButtonDisabled: {
-    backgroundColor: "#ccc",
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  submitButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-    marginLeft: 8,
-  },
-  recentRequestsContainer: {
+  requestRow: {
+    flexDirection: 'row',
     marginBottom: 20,
+    gap: 15,
   },
-  recentRequestItem: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
+  requestButton: {
+    flex: 1,
+    height: 120,
+    borderRadius: 25,
+    overflow: 'hidden',
+    elevation: 3,
   },
-  recentRequestText: {
+  gradientButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 25,
+    padding: 10,
+  },
+  requestButtonText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  viewButtonContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuIcon: {
+    marginBottom: 5,
+  },
+  viewButtonText: {
     fontSize: 16,
-    color: "#666",
-    marginBottom: 4,
+    fontWeight: '600',
+    color: '#000',
+    textAlign: 'center',
   },
-  recentRequestDate: {
+  tabBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 20,
+    backgroundColor: '#16213e',
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  tabButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabLabel: {
     fontSize: 12,
-    color: "#999",
+    marginTop: 5,
+    color: '#fff',
+    textAlign: 'center',
+  },
+  activeTabLabel: {
+    fontWeight: 'bold',
+    color: '#00ddff',
   },
 });

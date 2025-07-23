@@ -1,4 +1,4 @@
-// app/login.tsx (Fixed version with credential storage)
+// app/login.tsx (Updated version without forgot password)
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as SecureStore from 'expo-secure-store';
@@ -15,7 +15,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 
 import logoImage from "../assets/images/imclogo.png";
@@ -77,14 +77,6 @@ export default function LoginScreen() {
     }
   };
 
-  const handleForgotPassword = () => {
-    Alert.alert(
-      "Forgot Password",
-      "Please contact your administrator to reset your password.",
-      [{ text: "OK", style: "default" }]
-    );
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -141,13 +133,6 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity 
-              style={styles.forgotPasswordButton}
-              onPress={handleForgotPassword}
-            >
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
               style={[styles.loginButton, isLoading && styles.loginButtonDisabled]} 
               onPress={handleLogin}
               disabled={isLoading}
@@ -175,122 +160,118 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1 
+  container: {
+    flex: 1,
   },
-  background: { 
-    flex: 1, 
-    justifyContent: "center" 
+  background: {
+    flex: 1,
+    justifyContent: 'center',
   },
-  scrollContainer: { 
-    flexGrow: 1, 
-    justifyContent: "center", 
-    padding: 20 
+  scrollContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   card: {
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
-    padding: 32,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 15,
-    elevation: 8,
-    marginHorizontal: 5,
+    padding: 30,
+    marginHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 5,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
   },
   logo: {
-    width: 180,
-    height: 110,
-    resizeMode: "contain",
-    alignSelf: "center",
-    marginBottom: 16,
+    width: 120,
+    height: 120,
+    alignSelf: 'center',
+    marginBottom: 20,
+    resizeMode: 'contain',
   },
   title: {
     fontSize: 28,
-    textAlign: "center",
-    fontWeight: "700",
+    fontWeight: 'bold',
+    textAlign: 'center',
     marginBottom: 8,
-    color: "#2c3e50",
+    color: '#333',
   },
   subtitle: {
     fontSize: 16,
-    textAlign: "center",
-    color: "#7f8c8d",
-    marginBottom: 32,
+    textAlign: 'center',
+    marginBottom: 30,
+    color: '#666',
   },
   inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f8f9fa",
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e9ecef",
-    paddingHorizontal: 16,
     marginBottom: 16,
-    height: 56,
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   inputIcon: {
-    marginRight: 12,
+    marginRight: 10,
   },
   input: {
     flex: 1,
+    paddingVertical: 15,
     fontSize: 16,
-    color: "#2c3e50",
+    color: '#333',
   },
   passwordInput: {
     flex: 1,
+    paddingVertical: 15,
     fontSize: 16,
-    color: "#2c3e50",
+    color: '#333',
   },
   eyeIcon: {
-    padding: 4,
-  },
-  forgotPasswordButton: {
-    alignSelf: "flex-end",
-    marginBottom: 24,
-  },
-  forgotPasswordText: {
-    color: "#007bff",
-    fontSize: 14,
-    fontWeight: "600",
+    padding: 5,
   },
   loginButton: {
-    backgroundColor: "#007bff",
-    paddingVertical: 18,
+    backgroundColor: '#007bff',
     borderRadius: 12,
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
-    shadowColor: "#007bff",
-    shadowOffset: { width: 0, height: 4 },
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    shadowColor: '#007bff',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 5,
   },
   loginButtonDisabled: {
-    backgroundColor: "#adb5bd",
+    backgroundColor: '#6c757d',
     shadowOpacity: 0,
     elevation: 0,
   },
   loginButtonText: {
-    color: "#fff",
+    color: '#fff',
     fontSize: 18,
-    fontWeight: "700",
+    fontWeight: '600',
     marginRight: 8,
   },
   loginIcon: {
-    marginLeft: 4,
+    marginLeft: 5,
   },
   footer: {
-    marginTop: 24,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: "#e9ecef",
+    marginTop: 30,
+    alignItems: 'center',
   },
   footerText: {
-    textAlign: "center",
-    color: "#6c757d",
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
 });
