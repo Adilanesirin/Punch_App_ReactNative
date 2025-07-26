@@ -1,4 +1,3 @@
-// app/login.tsx (Updated version without forgot password)
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as SecureStore from 'expo-secure-store';
@@ -47,8 +46,7 @@ export default function LoginScreen() {
         const data = await response.json();
         if (data.status === "active") {
           const name = data.name || "User";
-          
-          // Store credentials in SecureStore after successful login
+
           try {
             await SecureStore.setItemAsync('userId', email);
             await SecureStore.setItemAsync('password', password);
@@ -57,11 +55,10 @@ export default function LoginScreen() {
             console.error('Error saving credentials:', error);
             Alert.alert('Warning', 'Login successful but failed to save credentials locally');
           }
-          
-          // Navigate to home screen (no tabs) and pass username
-          router.replace({ 
-            pathname: "/home", 
-            params: { username: name } 
+
+          router.replace({
+            pathname: "/home",
+            params: { username: name }
           });
         } else {
           Alert.alert("Login Failed", "Your account is not active.");
@@ -80,7 +77,8 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.select({ ios: "padding", android: undefined })}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
     >
       <ImageBackground source={bgImage} style={styles.background} resizeMode="cover">
         <ScrollView
@@ -120,20 +118,13 @@ export default function LoginScreen() {
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}
               />
-              <TouchableOpacity 
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
-              >
-                <Ionicons
-                  name={showPassword ? "eye" : "eye-off"}
-                  size={20}
-                  color="#666"
-                />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+                <Ionicons name={showPassword ? "eye" : "eye-off"} size={20} color="#666" />
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity 
-              style={[styles.loginButton, isLoading && styles.loginButtonDisabled]} 
+            <TouchableOpacity
+              style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
               onPress={handleLogin}
               disabled={isLoading}
             >
@@ -148,9 +139,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>
-                Secure login powered by IMC
-              </Text>
+              <Text style={styles.footerText}>Secure login powered by IMC</Text>
             </View>
           </View>
         </ScrollView>
@@ -165,23 +154,19 @@ const styles = StyleSheet.create({
   },
   background: {
     flex: 1,
-    justifyContent: 'center',
   },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
+    paddingVertical: 40,
   },
   card: {
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
     padding: 30,
-    marginHorizontal: 20,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
+    shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.25,
     shadowRadius: 10,
     elevation: 10,
@@ -243,10 +228,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 20,
     shadowColor: '#007bff',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
@@ -262,6 +244,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginRight: 8,
   },
+  
   loginIcon: {
     marginLeft: 5,
   },

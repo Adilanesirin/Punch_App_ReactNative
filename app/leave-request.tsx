@@ -258,7 +258,7 @@ const LeaveRequest = () => {
       return false;
     }
 
-    if (reason.trim().length < 10) {
+    if (reason.trim().length < 0) {
       Alert.alert('Validation Error', 'Please provide a more detailed reason (at least 10 characters)');
       return false;
     }

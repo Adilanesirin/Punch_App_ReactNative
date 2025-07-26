@@ -36,13 +36,14 @@ interface TodayStatus {
 
 export default function Home() {
   const router = useRouter();
-  const { username } = useLocalSearchParams<{ username: string }>();
+  const { username: paramUsername } = useLocalSearchParams<{ username: string }>();
 
   const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileCard, setShowProfileCard] = useState(false);
   const [userCredentials, setUserCredentials] = useState<UserCredentials | null>(null);
+  const [username, setUsername] = useState<string>('User'); // Add state for username
 
   /* ---------- loading overlay states ---------- */
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
@@ -51,6 +52,28 @@ export default function Home() {
 
   const getUserSpecificKey = (baseKey: string) => {
     return userCredentials?.userId ? `${baseKey}_${userCredentials.userId}` : baseKey;
+  };
+
+  // Function to get stored username
+  const getStoredUsername = async () => {
+    try {
+      const storedUsername = await SecureStore.getItemAsync('username');
+      if (storedUsername) {
+        setUsername(storedUsername);
+      }
+    } catch (error) {
+      console.error('Error getting stored username:', error);
+    }
+  };
+
+  // Function to store username
+  const storeUsername = async (name: string) => {
+    try {
+      await SecureStore.setItemAsync('username', name);
+      setUsername(name);
+    } catch (error) {
+      console.error('Error storing username:', error);
+    }
   };
 
   const getUserCredentials = async () => {
@@ -163,8 +186,10 @@ export default function Home() {
         onPress: async () => {
           await SecureStore.deleteItemAsync('userId');
           await SecureStore.deleteItemAsync('password');
+          await SecureStore.deleteItemAsync('username'); // Clear stored username
           setUserCredentials(null);
           setTodayStatus(null);
+          setUsername('User'); // Reset username state
           setShowProfileCard(false);
           router.replace('/login');
         },
@@ -183,6 +208,12 @@ export default function Home() {
 
   useEffect(() => {
     getUserCredentials();
+    getStoredUsername(); // Get stored username on component mount
+    
+    // If username is passed as parameter (from login), store it
+    if (paramUsername) {
+      storeUsername(paramUsername);
+    }
   }, []);
 
   useEffect(() => {
@@ -325,7 +356,7 @@ export default function Home() {
                   <View style={homeStyles.profileIconContainer}>
                     <Ionicons name="person" size={40} color="#1a1a2e" />
                   </View>
-                  <Text style={homeStyles.profileName}>Hello, {username || 'User'}</Text>
+                  <Text style={homeStyles.profileName}>Hello, {username}</Text>
                 </View>
                 <TouchableOpacity style={homeStyles.logoutButton} onPress={handleLogout}>
                   <Ionicons name="log-out-outline" size={20} color="#fff" style={homeStyles.logoutIcon} />
