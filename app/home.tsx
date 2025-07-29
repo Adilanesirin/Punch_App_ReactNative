@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -22,43 +23,170 @@ interface UserCredentials {
   password: string;
 }
 
-interface PunchData {
-  time: string;
-  location: any;
+interface UserProfile {
+  userid: string;
+  name: string;
+  status: string;
+  image: string;
+  image_url: string;
 }
 
-interface TodayStatus {
-  date: string;
-  punchIn: PunchData | null;
-  punchOut: PunchData | null;
-  totalHours: string;
+interface GridItem {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  route: string;
+  color: string;
 }
 
 export default function Home() {
   const router = useRouter();
   const { username: paramUsername } = useLocalSearchParams<{ username: string }>();
 
-  const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileCard, setShowProfileCard] = useState(false);
   const [userCredentials, setUserCredentials] = useState<UserCredentials | null>(null);
-  const [username, setUsername] = useState<string>('User'); // Add state for username
+  const [username, setUsername] = useState<string>('User');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [imageLoadAttempts, setImageLoadAttempts] = useState(0);
+  const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
 
   /* ---------- loading overlay states ---------- */
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
 
-  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+  // Grid items configuration - Updated to single Attendance item
+  const gridItems: GridItem[] = [
+    {
+      id: '1',
+      title: 'ATTENDANCE',
+      description: 'Manage attendance & requests',
+      icon: 'calendar',
+      route: 'dashboard',
+      color: '#4CAF50'
+    }
+  ];
 
   const getUserSpecificKey = (baseKey: string) => {
     return userCredentials?.userId ? `${baseKey}_${userCredentials.userId}` : baseKey;
   };
 
-  // Function to get stored username
+// Enhanced image URL validation and processing
+const processImageUrl = (imageUrl: string): string | null => {
+  if (!imageUrl) return null;
+  
+  const cleanUrl = imageUrl.trim();
+  
+  // If it's already a complete URL, use it
+  if (cleanUrl.startsWith('http')) {
+    return cleanUrl;
+  }
+  
+  // If it's a relative path, make it absolute
+  if (cleanUrl.startsWith('/')) {
+    return `https://myimc.in${cleanUrl}`;
+  }
+  
+  // Otherwise, assume it needs the base URL
+  return `https://myimc.in/${cleanUrl}`;
+};
+
+  // Function to fetch user profile from API
+  const fetchUserProfile = async () => {
+    if (!userCredentials?.userId) return;
+    
+    try {
+      console.log('Fetching user profile for userId:', userCredentials.userId);
+      
+      const response = await fetch('https://myimc.in/flutter/users/', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'YourAppName/1.0',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('API Response received, users count:', data.length);
+        
+        // Find the current user's profile
+        const currentUserProfile = data.find((user: UserProfile) => 
+          user.userid === userCredentials.userId
+        );
+        
+        if (currentUserProfile) {
+          console.log('User profile found:', {
+            name: currentUserProfile.name,
+            image: currentUserProfile.image,
+            image_url: currentUserProfile.image_url
+          });
+          
+          setUserProfile(currentUserProfile);
+          setUsername(currentUserProfile.name);
+          
+          // Process and set the image URL
+          const imageUrl = currentUserProfile.image_url || currentUserProfile.image;
+          const processedImageUrl = processImageUrl(imageUrl);
+          
+          console.log('Original image URL:', imageUrl);
+          console.log('Processed image URL:', processedImageUrl);
+          
+          setProfileImageUri(processedImageUrl);
+          setImageLoadError(false);
+          setImageLoadAttempts(0);
+          
+          // Store the profile data locally for offline access
+          const profileKey = getUserSpecificKey('user_profile');
+          await AsyncStorage.setItem(profileKey, JSON.stringify(currentUserProfile));
+        } else {
+          console.log('User profile not found for userId:', userCredentials.userId);
+        }
+      } else {
+        console.error('Failed to fetch user profile:', response.status, response.statusText);
+        // Load from local storage if API fails
+        await loadStoredUserProfile();
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      // Load from local storage if API fails
+      await loadStoredUserProfile();
+    }
+  };
+
+  // Function to load stored user profile
+  const loadStoredUserProfile = async () => {
+    if (!userCredentials?.userId) return;
+    
+    try {
+      const profileKey = getUserSpecificKey('user_profile');
+      const storedProfile = await AsyncStorage.getItem(profileKey);
+      if (storedProfile) {
+        const parsedProfile = JSON.parse(storedProfile);
+        console.log('Loaded stored profile:', parsedProfile.name);
+        
+        setUserProfile(parsedProfile);
+        setUsername(parsedProfile.name);
+        
+        // Process stored image URL
+        const imageUrl = parsedProfile.image_url || parsedProfile.image;
+        const processedImageUrl = processImageUrl(imageUrl);
+        setProfileImageUri(processedImageUrl);
+        setImageLoadError(false);
+      }
+    } catch (error) {
+      console.error('Error loading stored user profile:', error);
+    }
+  };
+
+  // Function to get stored username (fallback)
   const getStoredUsername = async () => {
     try {
       const storedUsername = await SecureStore.getItemAsync('username');
-      if (storedUsername) {
+      if (storedUsername && !userProfile) {
         setUsername(storedUsername);
       }
     } catch (error) {
@@ -76,129 +204,127 @@ export default function Home() {
     }
   };
 
+  // Enhanced function to check login status more reliably
+  const checkLoginStatus = async () => {
+    try {
+      const userId = await SecureStore.getItemAsync('userId');
+      const password = await SecureStore.getItemAsync('password');
+      
+      // If both credentials exist, user should stay logged in
+      if (userId && password) {
+        setUserCredentials({ userId, password });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error checking login status:', error);
+      // On error, assume user should stay logged in if we have any indication
+      return userCredentials !== null;
+    }
+  };
+
+  // Enhanced getUserCredentials with better error handling
   const getUserCredentials = async () => {
     try {
       const [uid, pwd] = await Promise.all([
         SecureStore.getItemAsync('userId'),
         SecureStore.getItemAsync('password'),
       ]);
+      
       if (uid && pwd) {
         setUserCredentials({ userId: uid, password: pwd });
+        // Don't redirect to login if credentials exist - stay logged in
       } else {
+        // Only redirect to login if no credentials are stored at all
         router.replace('/login');
       }
     } catch (error) {
       console.error('Error getting user credentials:', error);
-      router.replace('/login');
-    }
-  };
-
-  const loadTodayStatus = async () => {
-    if (!userCredentials?.userId) return;
-    try {
-      const todayKey = getUserSpecificKey(`punch_data_${getTodayDateString()}`);
-      const raw = await AsyncStorage.getItem(todayKey);
-      if (raw) {
-        const parsedData = JSON.parse(raw);
-        setTodayStatus(parsedData);
-      } else {
-        await fetchTodayStatusFromAPI();
+      // Don't redirect on error - give user benefit of doubt
+      // Only redirect if we're absolutely sure there are no credentials
+      try {
+        const fallbackUid = await SecureStore.getItemAsync('userId');
+        if (!fallbackUid) {
+          router.replace('/login');
+        }
+      } catch (fallbackError) {
+        console.error('Fallback credential check failed:', fallbackError);
       }
-    } catch (error) {
-      console.error('Error loading today status:', error);
-      setTodayStatus({
-        date: getTodayDateString(),
-        punchIn: null,
-        punchOut: null,
-        totalHours: '0h 0m',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchTodayStatusFromAPI = async () => {
-    const defaultStatus: TodayStatus = {
-      date: getTodayDateString(),
-      punchIn: null,
-      punchOut: null,
-      totalHours: '0h 0m',
-    };
-    setTodayStatus(defaultStatus);
-    if (userCredentials?.userId) {
-      const todayKey = getUserSpecificKey(`punch_data_${getTodayDateString()}`);
-      await AsyncStorage.setItem(todayKey, JSON.stringify(defaultStatus));
     }
   };
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadTodayStatus().finally(() => setRefreshing(false));
+    // Reset image state on refresh
+    setImageLoadError(false);
+    setImageLoadAttempts(0);
+    setProfileImageUri(null);
+    fetchUserProfile().finally(() => setRefreshing(false));
   }, [userCredentials]);
 
-  const formatTime = (timeString?: string) => {
-    if (!timeString) return 'Not recorded';
-    try {
-      return new Date(timeString).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch {
-      return 'Invalid time';
-    }
-  };
-
-  const formatLocation = (loc: any): string => {
-    if (!loc) return 'N/A';
-    if (typeof loc === 'string') {
-      try {
-        const parsed = JSON.parse(loc);
-        return parsed.city || parsed.address || loc;
-      } catch {
-        return loc;
-      }
-    }
-    return loc.city || loc.address || 'N/A';
-  };
-
-  const getWorkingStatus = () => {
-    if (!todayStatus) return 'No data';
-    if (todayStatus.punchIn && !todayStatus.punchOut) return 'Currently working';
-    if (todayStatus.punchIn && todayStatus.punchOut) return 'Work completed';
-    return 'Not started';
-  };
-
-  const getStatusColor = () => {
-    switch (getWorkingStatus()) {
-      case 'Currently working': return '#28a745';
-      case 'Work completed': return '#007bff';
-      default: return '#6c757d';
-    }
-  };
-
+  // Enhanced logout function - only logout when user explicitly chooses to
   const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await SecureStore.deleteItemAsync('userId');
-          await SecureStore.deleteItemAsync('password');
-          await SecureStore.deleteItemAsync('username'); // Clear stored username
-          setUserCredentials(null);
-          setTodayStatus(null);
-          setUsername('User'); // Reset username state
-          setShowProfileCard(false);
-          router.replace('/login');
+    Alert.alert(
+      'Logout', 
+      'Are you sure you want to logout? You will need to enter your credentials again.', 
+      [
+        { 
+          text: 'Cancel', 
+          style: 'cancel' 
         },
-      },
-    ]);
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Clear ALL stored credentials and data
+              await Promise.all([
+                SecureStore.deleteItemAsync('userId'),
+                SecureStore.deleteItemAsync('password'),
+                SecureStore.deleteItemAsync('username')
+              ]);
+              
+              // Clear user profile data if exists
+              if (userCredentials?.userId) {
+                const profileKey = getUserSpecificKey('user_profile');
+                await AsyncStorage.removeItem(profileKey);
+              }
+              
+              // Clear any other user-specific stored data
+              try {
+                await AsyncStorage.multiRemove([
+                  'user_profile',
+                  'cached_attendance',
+                  'last_sync_time'
+                ]);
+              } catch (clearError) {
+                console.log('Some cached data could not be cleared:', clearError);
+              }
+              
+              // Reset all state variables
+              setUserCredentials(null);
+              setUsername('User');
+              setUserProfile(null);
+              setShowProfileCard(false);
+              setImageLoadError(false);
+              setProfileImageUri(null);
+              setImageLoadAttempts(0);
+              
+              // Navigate to login screen
+              router.replace('/login');
+              
+            } catch (logoutError) {
+              console.error('Error during logout:', logoutError);
+              Alert.alert('Logout Error', 'There was an issue logging out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
-  /* ---------- Instagram-style navigation ---------- */
-  const handleTabNavigation = async (route: string) => {
+  /* ---------- Navigation handlers ---------- */
+  const handleGridItemPress = async (route: string) => {
     if (loadingTab) return;
     setLoadingTab(route);
     await new Promise((res) => setTimeout(res, 300)); // mimic loading
@@ -206,36 +332,145 @@ export default function Home() {
     setLoadingTab(null);
   };
 
-  useEffect(() => {
-    getUserCredentials();
-    getStoredUsername(); // Get stored username on component mount
+  // Enhanced image error handling with retry mechanism
+const handleImageError = () => {
+  console.log('Image load error occurred, attempt:', imageLoadAttempts + 1);
+  
+  if (imageLoadAttempts < 1) { // Reduced retry attempts
+    setImageLoadAttempts(prev => prev + 1);
     
-    // If username is passed as parameter (from login), store it
-    if (paramUsername) {
-      storeUsername(paramUsername);
+    // Try alternative image URL
+    if (userProfile) {
+      const alternativeUrl = imageLoadAttempts === 0 
+        ? userProfile.image_url || userProfile.image
+        : userProfile.image || userProfile.image_url;
+        
+      if (alternativeUrl && alternativeUrl !== profileImageUri) {
+        const processedUrl = processImageUrl(alternativeUrl);
+        if (processedUrl) {
+          console.log('Retrying with alternative URL:', processedUrl);
+          setProfileImageUri(processedUrl);
+          return;
+        }
+      }
     }
+  }
+  
+  // If all retries failed, show fallback
+  console.log('All image load attempts failed, showing fallback icon');
+  setImageLoadError(true);
+  setProfileImageUri(null);
+};
+
+
+const renderProfileImage = (size: number, containerStyle?: any) => {
+  // Always show fallback if no URI or error occurred
+  if (!profileImageUri || imageLoadError) {
+    return (
+      <View style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: '#e0e0e0',
+          justifyContent: 'center',
+          alignItems: 'center',
+        },
+        containerStyle
+      ]}>
+        <Ionicons 
+          name="person-circle" 
+          size={size * 0.9} 
+          color="#666" 
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={[{ width: size, height: size, borderRadius: size / 2 }, containerStyle]}>
+      <Image
+        source={{ uri: profileImageUri }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+        }}
+        onError={(error) => {
+          console.log('Image failed to load:', error.nativeEvent?.error);
+          setImageLoadError(true);
+        }}
+        onLoad={() => {
+          console.log('Image loaded successfully');
+          setImageLoadError(false);
+        }}
+        resizeMode="cover"
+      />
+    </View>
+  );
+};
+
+
+  // Render grid item - Updated for single centered item
+  const renderGridItem = (item: GridItem) => (
+    <TouchableOpacity
+      key={item.id}
+      style={homeStyles.gridItem}
+      onPress={() => handleGridItemPress(item.route)}
+      activeOpacity={0.8}
+    >
+      <BlurView intensity={80} tint="light" style={homeStyles.gridItemBlur}>
+        <View style={homeStyles.gridItemContent}>
+          <View style={[homeStyles.gridIconContainer, { backgroundColor: `${item.color}20` }]}>
+            <Ionicons name={item.icon as any} size={40} color={item.color} />
+          </View>
+          <Text style={homeStyles.gridItemTitle}>{item.title}</Text>
+          <Text style={homeStyles.gridItemDescription}>{item.description}</Text>
+        </View>
+      </BlurView>
+    </TouchableOpacity>
+  );
+
+  // Enhanced useEffect for initialization - ensuring persistent login
+  useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        // First check if we have stored credentials
+        const hasCredentials = await checkLoginStatus();
+        
+        if (!hasCredentials) {
+          // Only redirect to login if absolutely no credentials exist
+          const finalCheck = await SecureStore.getItemAsync('userId');
+          if (!finalCheck) {
+            router.replace('/login');
+          }
+        }
+        
+        // Always try to get stored username
+        await getStoredUsername();
+        
+        // If username is passed as parameter (from login), store it
+        if (paramUsername) {
+          await storeUsername(paramUsername);
+        }
+      } catch (error) {
+        console.error('App initialization error:', error);
+        // Don't redirect on initialization errors - let user stay logged in
+      }
+    };
+    
+    initializeApp();
   }, []);
 
+  // Modified useEffect for user credentials - more persistent
   useEffect(() => {
     if (userCredentials?.userId) {
-      loadTodayStatus();
-      const statusInterval = setInterval(loadTodayStatus, 30000);
-      const refreshListener = setInterval(async () => {
-        try {
-          const refreshKey = getUserSpecificKey('force_home_refresh');
-          const ts = await AsyncStorage.getItem(refreshKey);
-          if (ts) {
-            await AsyncStorage.removeItem(refreshKey);
-            loadTodayStatus();
-          }
-        } catch (error) {
-          console.error('Error in refresh listener:', error);
-        }
-      }, 1000);
-      return () => {
-        clearInterval(statusInterval);
-        clearInterval(refreshListener);
-      };
+      // User has valid credentials, fetch profile and set loading to false
+      fetchUserProfile();
+      setIsLoading(false);
+    } else {
+      // Try to get credentials one more time before giving up
+      getUserCredentials();
     }
   }, [userCredentials]);
 
@@ -265,7 +500,7 @@ export default function Home() {
             style={homeStyles.profileIconButton}
             onPress={() => setShowProfileCard(true)}
           >
-            <Ionicons name="person-circle" size={35} color="#ffffffff" />
+            {renderProfileImage(35)}
           </TouchableOpacity>
         </View>
 
@@ -273,72 +508,22 @@ export default function Home() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
           }
-          contentContainerStyle={homeStyles.cardWrapper}
+          contentContainerStyle={homeStyles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <BlurView intensity={90} tint="light" style={homeStyles.miniCard}>
-            <View style={homeStyles.transparentCardContent}>
-              <View style={homeStyles.cardHeader}>
-                <Text style={homeStyles.miniTitle}>Today's Status</Text>
-                <TouchableOpacity style={homeStyles.statusIndicator} onPress={onRefresh}>
-                  <Ionicons name="refresh-circle" size={24} color="#4CAF50" />
-                </TouchableOpacity>
-              </View>
-              <Text style={homeStyles.miniDate}>
-                {new Date().toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </Text>
-              <View style={homeStyles.statusContainer}>
-                <View style={homeStyles.statusRow}>
-                  <View style={homeStyles.statusLeft}>
-                    <Ionicons name="log-in" size={16} color="#4CAF50" />
-                    <Text style={homeStyles.statusLabel}>Punch In:</Text>
-                  </View>
-                  <Text style={homeStyles.statusValue}>
-                    {todayStatus?.punchIn ? formatTime(todayStatus.punchIn.time) : 'Not recorded'}
-                  </Text>
-                </View>
-                <View style={homeStyles.statusRow}>
-                  <View style={homeStyles.statusLeft}>
-                    <Ionicons name="location" size={16} color="#4CAF50" />
-                    <Text style={homeStyles.statusLabel}>Punch In Location:</Text>
-                  </View>
-                  <Text style={[homeStyles.statusValue, homeStyles.locationValue]}>
-                    {todayStatus?.punchIn ? formatLocation(todayStatus.punchIn.location) : 'N/A'}
-                  </Text>
-                </View>
-                <View style={homeStyles.divider} />
-                <View style={homeStyles.statusRow}>
-                  <View style={homeStyles.statusLeft}>
-                    <Ionicons name="log-out" size={16} color="#F44336" />
-                    <Text style={homeStyles.statusLabel}>Punch Out:</Text>
-                  </View>
-                  <Text style={homeStyles.statusValue}>
-                    {todayStatus?.punchOut ? formatTime(todayStatus.punchOut.time) : 'Not punched out yet'}
-                  </Text>
-                </View>
-                <View style={homeStyles.statusRow}>
-                  <View style={homeStyles.statusLeft}>
-                    <Ionicons name="location" size={16} color="#F44336" />
-                    <Text style={homeStyles.statusLabel}>Punch Out Location:</Text>
-                  </View>
-                  <Text style={[homeStyles.statusValue, homeStyles.locationValue]}>
-                    {todayStatus?.punchOut ? formatLocation(todayStatus.punchOut.location) : 'Not punched out yet'}
-                  </Text>
-                </View>
-                <View style={homeStyles.workingStatusContainer}>
-                  <View style={[homeStyles.statusDot, { backgroundColor: getStatusColor() }]} />
-                  <Text style={[homeStyles.workingStatus, { color: getStatusColor() }]}>
-                    {getWorkingStatus()}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </BlurView>
+          {/* Welcome Section */}
+          <View style={homeStyles.welcomeSection}>
+            <Text style={homeStyles.welcomeTitle}>Welcome back,</Text>
+            <Text style={homeStyles.welcomeName}>{username}</Text>
+          </View>
+
+          {/* Grid Container - Updated for single centered item */}
+          <View style={homeStyles.gridContainer}>
+            {gridItems.map(renderGridItem)}
+          </View>
         </ScrollView>
 
+        {/* Profile Modal */}
         <Modal
           visible={showProfileCard}
           transparent
@@ -354,7 +539,23 @@ export default function Home() {
               <TouchableOpacity activeOpacity={1} style={homeStyles.profileContent}>
                 <View style={homeStyles.profileHeader}>
                   <View style={homeStyles.profileIconContainer}>
-                    <Ionicons name="person" size={40} color="#1a1a2e" />
+                    {profileImageUri && !imageLoadError ? (
+                      <Image
+                        source={{ 
+                          uri: profileImageUri,
+                          headers: {
+                            'User-Agent': 'YourAppName/1.0',
+                            'Accept': 'image/*',
+                          }
+                        }}
+                        style={homeStyles.profileImage}
+                        onError={handleImageError}
+                        onLoad={() => console.log('Modal image loaded successfully')}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Ionicons name="person" size={40} color="#1a1a2e" />
+                    )}
                   </View>
                   <Text style={homeStyles.profileName}>Hello, {username}</Text>
                 </View>
@@ -366,23 +567,6 @@ export default function Home() {
             </BlurView>
           </TouchableOpacity>
         </Modal>
-
-        <View style={homeStyles.tabBar}>
-          <TouchableOpacity onPress={() => handleTabNavigation('punch')} style={homeStyles.tabButton}>
-            <Ionicons name="finger-print" size={35} color="#fff" />
-          <Text style={[homeStyles.tabLabel,{color:"#fff"}]}>Punch</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => { }} style={homeStyles.tabButton}>
-            <Ionicons name="home" size={35} color="#00ddff" />
-              <Text style={[homeStyles.tabLabel, homeStyles.activeTabLabel,{color: '#00ddff'}]}>Home</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => handleTabNavigation('request')} style={homeStyles.tabButton}>
-            <Ionicons name="document-text" size={35} color="#fff" />
-            <Text style={[homeStyles.tabLabel,{color:"#fff"}]}>Request</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </View>
   );
@@ -411,16 +595,48 @@ const homeStyles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.01)',
   },
   profileIconButton: { padding: 5 },
-  cardWrapper: {
+  scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+  },
+
+  // Welcome Section Styles
+  welcomeSection: {
+    alignItems: 'center',
+    marginBottom: 40,
     paddingVertical: 20,
   },
-  miniCard: {
-    width: '100%',
-    maxWidth: 380,
+  welcomeTitle: {
+    fontSize: 24,
+    color: '#ffffff',
+    fontWeight: '300',
+    textAlign: 'center',
+  },
+  welcomeName: {
+    fontSize: 28,
+    color: '#00ddff',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginVertical: 8,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: '#cccccc',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+
+  // Grid Styles - Updated for single centered item
+  gridContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridItem: {
+    width: '80%',
+    maxWidth: 300,
+    marginBottom: 16,
     borderRadius: 20,
     overflow: 'hidden',
     elevation: 8,
@@ -428,55 +644,45 @@ const homeStyles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  gridItemBlur: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  transparentCardContent: {
-    paddingVertical: 25,
-    paddingHorizontal: 25,
+  gridItemContent: {
+    paddingVertical: 40,
+    paddingHorizontal: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 20,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-  },
-  miniTitle: { fontSize: 22, fontWeight: 'bold', color: '#1a1a1a' },
-  statusIndicator: { padding: 4 },
-  miniDate: { fontSize: 14, color: '#666', marginBottom: 20, fontWeight: '500' },
-  statusContainer: {
-    backgroundColor: 'rgba(248, 250, 252, 0.8)',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(226, 232, 240, 0.8)',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    minHeight: 32,
-  },
-  statusLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  statusLabel: { fontSize: 14, color: '#374151', fontWeight: '500', marginLeft: 8 },
-  statusValue: { fontSize: 14, color: '#1f2937', fontWeight: '600', textAlign: 'right', flex: 1 },
-  locationValue: { fontSize: 12, color: '#6b7280', textDecorationLine: 'underline' },
-  divider: { height: 1, backgroundColor: 'rgba(229, 231, 235, 0.8)', marginVertical: 12 },
-  workingStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    minHeight: 180,
     justifyContent: 'center',
-    marginTop: 15,
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(229, 231, 235, 0.6)',
   },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  workingStatus: { fontSize: 14, fontWeight: '600' },
+  gridIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  gridItemTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1a1a2e',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  gridItemDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
@@ -516,6 +722,12 @@ const homeStyles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
+    overflow: 'hidden',
+  },
+  profileImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   profileName: { fontSize: 18, fontWeight: '600', color: '#333', textAlign: 'center' },
   logoutButton: {
@@ -530,17 +742,4 @@ const homeStyles = StyleSheet.create({
   },
   logoutIcon: { marginRight: 8 },
   logoutText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  tabBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 20,
-    backgroundColor: '#16213e',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    
-  },
-  tabButton: { alignItems: 'center', justifyContent: 'center', paddingVertical: 0, paddingHorizontal: 10,marginTop: -5, },
-  tabLabel: { fontSize: 12, color: '#888', marginTop: 8, textAlign: 'center' },
-  activeTabLabel: { color: '#000607ff', fontWeight: 'bold' },
 });

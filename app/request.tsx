@@ -174,35 +174,7 @@ const Request = () => {
         </View>
       </ScrollView>
 
-      {/* Tab Bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity onPress={() => handleTabNavigation('punch')} disabled={loadingTab !== null} style={styles.tabButton}>
-          {loadingTab === 'punch' ? (
-            <ActivityIndicator size="small" color="#888" />
-          ) : (
-            <>
-              <Ionicons name="finger-print" size={35} color="#fff" />
-              <Text style={styles.tabLabel}>Punch</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => handleTabNavigation('home')} disabled={loadingTab !== null} style={styles.tabButton}>
-          {loadingTab === 'home' ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="home" size={35} color="#fff" />
-              <Text style={styles.tabLabel}>Home</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.tabButton}>
-          <Ionicons name="document-text" size={35} color="#00ddff" />
-          <Text style={[styles.tabLabel, styles.activeTabLabel]}>Request</Text>
-        </TouchableOpacity>
-      </View>
+      
     </View>
   );
 };
@@ -282,32 +254,5 @@ const styles = StyleSheet.create({
     color: '#000',
     textAlign: 'center',
   },
-  tabBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 20,
-    backgroundColor: '#16213e',
-    paddingHorizontal: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  tabButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabLabel: {
-    fontSize: 12,
-    marginTop: 5,
-    color: '#fff',
-    textAlign: 'center',
-  },
-  activeTabLabel: {
-    fontWeight: 'bold',
-    color: '#00ddff',
-  },
+ 
 });

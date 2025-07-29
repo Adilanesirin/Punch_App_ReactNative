@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "imc-app",
+    "name": "My Imc",
     "slug": "imc-mobileapp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,18 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSExceptionDomains": {
+            "myimc.in": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSIncludesSubdomains": true
+            }
+          }
+        }
+      }
     },
     "android": {
       "icon": "./assets/images/imc1.png",
@@ -18,7 +29,12 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.adila2005.imcmobileapp"
+      "package": "com.adila2005.imcmobileapp",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro",
@@ -36,11 +52,23 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "requestLegacyExternalStorage": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    },    
+    },  
+    "cli": {
+      "appVersionSource": "local"
+    },
     "extra": {
       "router": {},
       "eas": {

@@ -4,14 +4,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 const ViewLateRequests = () => {
@@ -530,53 +530,7 @@ const ViewLateRequests = () => {
         )}
       </ScrollView>
 
-      {/* Tab Bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          onPress={() => handleTabNavigation('punch')}
-          disabled={loadingTab !== null}
-          style={styles.tabButton}
-        >
-          {loadingTab === 'punch' ? (
-            <ActivityIndicator size="small" color="#888" />
-          ) : (
-            <>
-              <Ionicons name="finger-print" size={35} color="#ffff" />
-              <Text style={[styles.tabLabel, {color: '#ffff'}]}>Punch</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => handleTabNavigation('home')}
-          disabled={loadingTab !== null}
-          style={styles.tabButton}
-        >
-          {loadingTab === 'home' ? (
-            <ActivityIndicator size="small" color="#ffff" />
-          ) : (
-            <>
-              <Ionicons name="home" size={35} color="#ffff" />
-              <Text style={[styles.tabLabel, {color: '#ffff'}]}>Home</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => handleTabNavigation('request')}
-          disabled={loadingTab !== null}
-          style={styles.tabButton}
-        >
-          {loadingTab === 'request' ? (
-            <ActivityIndicator size="small" color="#00ddff" />
-          ) : (
-            <>
-              <Ionicons name="document-text" size={35} color="#00ddff" />
-              <Text style={[styles.tabLabel, styles.activeTabLabel, {color: '#00ddff'}]}>Request</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+     
     </View>
   );
 };
@@ -815,32 +769,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFA500',
   },
-  tabBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 20,
-    backgroundColor: '#16213e',
-    paddingHorizontal: 20,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  tabButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabLabel: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 5,
-    textAlign: 'center',
-  },
-  activeTabLabel: { 
-    color: '#356effc8', 
-    fontWeight: 'bold',
-  },
+  
 });
