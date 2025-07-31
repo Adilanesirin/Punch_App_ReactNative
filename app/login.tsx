@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as SecureStore from 'expo-secure-store';
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,29 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const userId = await SecureStore.getItemAsync("userId");
+        const password = await SecureStore.getItemAsync("password");
+
+        if (userId && password) {
+          // User is already logged in, redirect to home
+          router.replace("/home");
+        } else {
+          // No credentials found, stay on login screen
+          setIsCheckingAuth(false);
+        }
+      } catch (error) {
+        console.error('Error checking auth:', error);
+        setIsCheckingAuth(false);
+      }
+    };
+    
+    checkAuth();
+  }, []); // Remove router dependency to prevent infinite calls
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -50,16 +73,14 @@ export default function LoginScreen() {
           try {
             await SecureStore.setItemAsync('userId', email);
             await SecureStore.setItemAsync('password', password);
+            await SecureStore.setItemAsync('username', name);
             console.log('Credentials saved successfully');
           } catch (error) {
             console.error('Error saving credentials:', error);
             Alert.alert('Warning', 'Login successful but failed to save credentials locally');
           }
 
-          router.replace({
-            pathname: "/home",
-            params: { username: name }
-          });
+          router.replace("/home");
         } else {
           Alert.alert("Login Failed", "Your account is not active.");
         }
@@ -73,6 +94,16 @@ export default function LoginScreen() {
       setIsLoading(false);
     }
   };
+
+  // Show loading screen while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }]}>
+        <ActivityIndicator size="large" color="#ffffff" />
+        <Text style={{ color: '#ffffff', marginTop: 10, fontSize: 16 }}>Checking authentication...</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView

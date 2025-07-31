@@ -2,7 +2,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system';
+import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -42,22 +43,19 @@ interface GridItem {
 
 export default function Home() {
   const router = useRouter();
-  const { username: paramUsername } = useLocalSearchParams<{ username: string }>();
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileCard, setShowProfileCard] = useState(false);
   const [userCredentials, setUserCredentials] = useState<UserCredentials | null>(null);
   const [username, setUsername] = useState<string>('User');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [imageLoadError, setImageLoadError] = useState(false);
-  const [imageLoadAttempts, setImageLoadAttempts] = useState(0);
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
-
-  /* ---------- loading overlay states ---------- */
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
+  const [isImageLoading, setIsImageLoading] = useState(false);
 
-  // Grid items configuration - Updated to single Attendance item
+  // Grid items configuration
   const gridItems: GridItem[] = [
     {
       id: '1',
@@ -73,25 +71,114 @@ export default function Home() {
     return userCredentials?.userId ? `${baseKey}_${userCredentials.userId}` : baseKey;
   };
 
-// Enhanced image URL validation and processing
-const processImageUrl = (imageUrl: string): string | null => {
-  if (!imageUrl) return null;
-  
-  const cleanUrl = imageUrl.trim();
-  
-  // If it's already a complete URL, use it
-  if (cleanUrl.startsWith('http')) {
-    return cleanUrl;
-  }
-  
-  // If it's a relative path, make it absolute
-  if (cleanUrl.startsWith('/')) {
-    return `https://myimc.in${cleanUrl}`;
-  }
-  
-  // Otherwise, assume it needs the base URL
-  return `https://myimc.in/${cleanUrl}`;
-};
+  // Enhanced image URL validation and processing
+  const processImageUrl = (imageUrl: string): string | null => {
+    if (!imageUrl) return null;
+    
+    const cleanUrl = imageUrl.trim();
+    
+    // If it's already a complete URL, use it
+    if (cleanUrl.startsWith('http')) {
+      return cleanUrl;
+    }
+    
+    // If it's a relative path, make it absolute
+    if (cleanUrl.startsWith('/')) {
+      return `https://myimc.in${cleanUrl}`;
+    }
+    
+    // Otherwise, assume it needs the base URL
+    return `https://myimc.in/${cleanUrl}`;
+  };
+
+  // Function to get cached image path
+  const getCachedImagePath = (userId: string) => {
+    return `${FileSystem.documentDirectory}profile_${userId}.jpg`;
+  };
+
+  // Function to load cached image
+  const loadCachedImage = async (userId: string) => {
+    try {
+      const cachedImagePath = getCachedImagePath(userId);
+      const fileInfo = await FileSystem.getInfoAsync(cachedImagePath);
+      
+      if (fileInfo.exists) {
+        console.log('Loading cached profile image');
+        setProfileImageUri(cachedImagePath);
+        setImageLoadError(false);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error loading cached image:', error);
+      return false;
+    }
+  };
+
+  // Function to download and cache image
+  const downloadAndCacheImage = async (imageUrl: string, userId: string) => {
+    try {
+      setIsImageLoading(true);
+      const cachedImagePath = getCachedImagePath(userId);
+      
+      console.log('Downloading image from:', imageUrl);
+      console.log('Saving to:', cachedImagePath);
+      
+      const downloadResult = await FileSystem.downloadAsync(imageUrl, cachedImagePath);
+      
+      if (downloadResult.status === 200) {
+        console.log('Image downloaded and cached successfully');
+        setProfileImageUri(cachedImagePath);
+        setImageLoadError(false);
+        
+        // Store image metadata in AsyncStorage
+        const imageMetadataKey = getUserSpecificKey('profile_image_metadata');
+        await AsyncStorage.setItem(imageMetadataKey, JSON.stringify({
+          originalUrl: imageUrl,
+          cachedPath: cachedImagePath,
+          downloadDate: new Date().toISOString()
+        }));
+        
+        return true;
+      } else {
+        console.error('Failed to download image, status:', downloadResult.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error downloading and caching image:', error);
+      return false;
+    } finally {
+      setIsImageLoading(false);
+    }
+  };
+
+  // Function to handle profile image loading
+  const handleProfileImageLoading = async (userProfile: UserProfile) => {
+    if (!userCredentials?.userId) return;
+
+    // First, try to load cached image
+    const cachedImageLoaded = await loadCachedImage(userCredentials.userId);
+    
+    if (!cachedImageLoaded) {
+      // If no cached image, try to download and cache
+      const imageUrl = userProfile.image_url || userProfile.image;
+      const processedImageUrl = processImageUrl(imageUrl);
+      
+      if (processedImageUrl) {
+        const downloadSuccess = await downloadAndCacheImage(processedImageUrl, userCredentials.userId);
+        
+        if (!downloadSuccess) {
+          console.log('Failed to download image, showing fallback');
+          setImageLoadError(true);
+          setProfileImageUri(null);
+        }
+      } else {
+        console.log('No valid image URL found');
+        setImageLoadError(true);
+        setProfileImageUri(null);
+      }
+    }
+  };
 
   // Function to fetch user profile from API
   const fetchUserProfile = async () => {
@@ -128,31 +215,22 @@ const processImageUrl = (imageUrl: string): string | null => {
           setUserProfile(currentUserProfile);
           setUsername(currentUserProfile.name);
           
-          // Process and set the image URL
-          const imageUrl = currentUserProfile.image_url || currentUserProfile.image;
-          const processedImageUrl = processImageUrl(imageUrl);
-          
-          console.log('Original image URL:', imageUrl);
-          console.log('Processed image URL:', processedImageUrl);
-          
-          setProfileImageUri(processedImageUrl);
-          setImageLoadError(false);
-          setImageLoadAttempts(0);
+          // Handle profile image loading with caching
+          await handleProfileImageLoading(currentUserProfile);
           
           // Store the profile data locally for offline access
           const profileKey = getUserSpecificKey('user_profile');
           await AsyncStorage.setItem(profileKey, JSON.stringify(currentUserProfile));
         } else {
           console.log('User profile not found for userId:', userCredentials.userId);
+          await loadStoredUserProfile();
         }
       } else {
         console.error('Failed to fetch user profile:', response.status, response.statusText);
-        // Load from local storage if API fails
         await loadStoredUserProfile();
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
-      // Load from local storage if API fails
       await loadStoredUserProfile();
     }
   };
@@ -171,98 +249,77 @@ const processImageUrl = (imageUrl: string): string | null => {
         setUserProfile(parsedProfile);
         setUsername(parsedProfile.name);
         
-        // Process stored image URL
-        const imageUrl = parsedProfile.image_url || parsedProfile.image;
-        const processedImageUrl = processImageUrl(imageUrl);
-        setProfileImageUri(processedImageUrl);
-        setImageLoadError(false);
+        // Try to load cached image
+        await loadCachedImage(userCredentials.userId);
       }
     } catch (error) {
       console.error('Error loading stored user profile:', error);
     }
   };
 
-  // Function to get stored username (fallback)
-  const getStoredUsername = async () => {
+  // Enhanced function to check login status and get credentials
+  const initializeUser = async () => {
     try {
-      const storedUsername = await SecureStore.getItemAsync('username');
-      if (storedUsername && !userProfile) {
-        setUsername(storedUsername);
-      }
-    } catch (error) {
-      console.error('Error getting stored username:', error);
-    }
-  };
-
-  // Function to store username
-  const storeUsername = async (name: string) => {
-    try {
-      await SecureStore.setItemAsync('username', name);
-      setUsername(name);
-    } catch (error) {
-      console.error('Error storing username:', error);
-    }
-  };
-
-  // Enhanced function to check login status more reliably
-  const checkLoginStatus = async () => {
-    try {
-      const userId = await SecureStore.getItemAsync('userId');
-      const password = await SecureStore.getItemAsync('password');
-      
-      // If both credentials exist, user should stay logged in
-      if (userId && password) {
-        setUserCredentials({ userId, password });
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error checking login status:', error);
-      // On error, assume user should stay logged in if we have any indication
-      return userCredentials !== null;
-    }
-  };
-
-  // Enhanced getUserCredentials with better error handling
-  const getUserCredentials = async () => {
-    try {
-      const [uid, pwd] = await Promise.all([
+      const [userId, password, storedUsername] = await Promise.all([
         SecureStore.getItemAsync('userId'),
         SecureStore.getItemAsync('password'),
+        SecureStore.getItemAsync('username')
       ]);
-      
-      if (uid && pwd) {
-        setUserCredentials({ userId: uid, password: pwd });
-        // Don't redirect to login if credentials exist - stay logged in
+      console.log(userId, password, storedUsername)
+      if (userId && password) {
+        // User has valid credentials
+        setUserCredentials({ userId, password });
+        if (storedUsername) {
+          setUsername(storedUsername);
+        }
+        return true;
       } else {
-        // Only redirect to login if no credentials are stored at all
+        // No credentials found, redirect to login
+        console.log('No credentials found, redirecting to login');
         router.replace('/login');
+        return false;
       }
     } catch (error) {
-      console.error('Error getting user credentials:', error);
-      // Don't redirect on error - give user benefit of doubt
-      // Only redirect if we're absolutely sure there are no credentials
-      try {
-        const fallbackUid = await SecureStore.getItemAsync('userId');
-        if (!fallbackUid) {
-          router.replace('/login');
-        }
-      } catch (fallbackError) {
-        console.error('Fallback credential check failed:', fallbackError);
-      }
+      console.error('Error initializing user:', error);
+      router.replace('/login');
+      return false;
     }
   };
 
-  const onRefresh = useCallback(() => {
+  // Function to clear cached image
+  const clearCachedImage = async (userId: string) => {
+    try {
+      const cachedImagePath = getCachedImagePath(userId);
+      const fileInfo = await FileSystem.getInfoAsync(cachedImagePath);
+      
+      if (fileInfo.exists) {
+        await FileSystem.deleteAsync(cachedImagePath);
+        console.log('Cached image cleared');
+      }
+      
+      // Clear image metadata
+      const imageMetadataKey = `profile_image_metadata_${userId}`;
+      await AsyncStorage.removeItem(imageMetadataKey);
+    } catch (error) {
+      console.error('Error clearing cached image:', error);
+    }
+  };
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     // Reset image state on refresh
     setImageLoadError(false);
-    setImageLoadAttempts(0);
     setProfileImageUri(null);
+    
+    // Clear cached image to force refresh
+    if (userCredentials?.userId) {
+      await clearCachedImage(userCredentials.userId);
+    }
+    
     fetchUserProfile().finally(() => setRefreshing(false));
   }, [userCredentials]);
 
-  // Enhanced logout function - only logout when user explicitly chooses to
+  // Enhanced logout function
   const handleLogout = async () => {
     Alert.alert(
       'Logout', 
@@ -277,6 +334,11 @@ const processImageUrl = (imageUrl: string): string | null => {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Clear cached image
+              if (userCredentials?.userId) {
+                await clearCachedImage(userCredentials.userId);
+              }
+              
               // Clear ALL stored credentials and data
               await Promise.all([
                 SecureStore.deleteItemAsync('userId'),
@@ -308,7 +370,7 @@ const processImageUrl = (imageUrl: string): string | null => {
               setShowProfileCard(false);
               setImageLoadError(false);
               setProfileImageUri(null);
-              setImageLoadAttempts(0);
+              setIsImageLoading(false);
               
               // Navigate to login screen
               router.replace('/login');
@@ -323,95 +385,82 @@ const processImageUrl = (imageUrl: string): string | null => {
     );
   };
 
-  /* ---------- Navigation handlers ---------- */
+  // Navigation handlers
   const handleGridItemPress = async (route: string) => {
     if (loadingTab) return;
     setLoadingTab(route);
-    await new Promise((res) => setTimeout(res, 300)); // mimic loading
+    await new Promise((res) => setTimeout(res, 300));
     router.push(`/${route}`);
     setLoadingTab(null);
   };
 
-  // Enhanced image error handling with retry mechanism
-const handleImageError = () => {
-  console.log('Image load error occurred, attempt:', imageLoadAttempts + 1);
-  
-  if (imageLoadAttempts < 1) { // Reduced retry attempts
-    setImageLoadAttempts(prev => prev + 1);
-    
-    // Try alternative image URL
-    if (userProfile) {
-      const alternativeUrl = imageLoadAttempts === 0 
-        ? userProfile.image_url || userProfile.image
-        : userProfile.image || userProfile.image_url;
-        
-      if (alternativeUrl && alternativeUrl !== profileImageUri) {
-        const processedUrl = processImageUrl(alternativeUrl);
-        if (processedUrl) {
-          console.log('Retrying with alternative URL:', processedUrl);
-          setProfileImageUri(processedUrl);
-          return;
-        }
-      }
+  const renderProfileImage = (size: number, containerStyle?: any) => {
+    // Show loading indicator if image is being downloaded
+    if (isImageLoading) {
+      return (
+        <View style={[
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: '#e0e0e0',
+            justifyContent: 'center',
+            alignItems: 'center',
+          },
+          containerStyle
+        ]}>
+          <ActivityIndicator size="small" color="#666" />
+        </View>
+      );
     }
-  }
-  
-  // If all retries failed, show fallback
-  console.log('All image load attempts failed, showing fallback icon');
-  setImageLoadError(true);
-  setProfileImageUri(null);
-};
 
+    // Always show fallback if no URI or error occurred
+    if (!profileImageUri || imageLoadError) {
+      return (
+        <View style={[
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: '#e0e0e0',
+            justifyContent: 'center',
+            alignItems: 'center',
+          },
+          containerStyle
+        ]}>
+          <Ionicons 
+            name="person-circle" 
+            size={size * 0.9} 
+            color="#666" 
+          />
+        </View>
+      );
+    }
 
-const renderProfileImage = (size: number, containerStyle?: any) => {
-  // Always show fallback if no URI or error occurred
-  if (!profileImageUri || imageLoadError) {
     return (
-      <View style={[
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: '#e0e0e0',
-          justifyContent: 'center',
-          alignItems: 'center',
-        },
-        containerStyle
-      ]}>
-        <Ionicons 
-          name="person-circle" 
-          size={size * 0.9} 
-          color="#666" 
+      <View style={[{ width: size, height: size, borderRadius: size / 2 }, containerStyle]}>
+        <Image
+          source={{ uri: profileImageUri }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+          }}
+          onError={(error) => {
+            console.log('Image failed to load:', error.nativeEvent?.error);
+            setImageLoadError(true);
+          }}
+          onLoad={() => {
+            console.log('Image loaded successfully');
+            setImageLoadError(false);
+          }}
+          resizeMode="cover"
         />
       </View>
     );
-  }
+  };
 
-  return (
-    <View style={[{ width: size, height: size, borderRadius: size / 2 }, containerStyle]}>
-      <Image
-        source={{ uri: profileImageUri }}
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-        }}
-        onError={(error) => {
-          console.log('Image failed to load:', error.nativeEvent?.error);
-          setImageLoadError(true);
-        }}
-        onLoad={() => {
-          console.log('Image loaded successfully');
-          setImageLoadError(false);
-        }}
-        resizeMode="cover"
-      />
-    </View>
-  );
-};
-
-
-  // Render grid item - Updated for single centered item
+  // Render grid item
   const renderGridItem = (item: GridItem) => (
     <TouchableOpacity
       key={item.id}
@@ -431,62 +480,46 @@ const renderProfileImage = (size: number, containerStyle?: any) => {
     </TouchableOpacity>
   );
 
-  // Enhanced useEffect for initialization - ensuring persistent login
+  // MAIN INITIALIZATION EFFECT - Only runs once
   useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        // First check if we have stored credentials
-        const hasCredentials = await checkLoginStatus();
-        
-        if (!hasCredentials) {
-          // Only redirect to login if absolutely no credentials exist
-          const finalCheck = await SecureStore.getItemAsync('userId');
-          if (!finalCheck) {
-            router.replace('/login');
-          }
-        }
-        
-        // Always try to get stored username
-        await getStoredUsername();
-        
-        // If username is passed as parameter (from login), store it
-        if (paramUsername) {
-          await storeUsername(paramUsername);
-        }
-      } catch (error) {
-        console.error('App initialization error:', error);
-        // Don't redirect on initialization errors - let user stay logged in
-      }
+    const init = async () => {
+      const hasCredentials = await initializeUser();
+      setIsInitializing(false);
     };
     
-    initializeApp();
-  }, []);
+    init();
+  }, []); // Empty dependency array - runs only once
 
-  // Modified useEffect for user credentials - more persistent
+  // FETCH PROFILE EFFECT - Only when credentials change
   useEffect(() => {
-    if (userCredentials?.userId) {
-      // User has valid credentials, fetch profile and set loading to false
+    if (userCredentials?.userId && !isInitializing) {
       fetchUserProfile();
-      setIsLoading(false);
-    } else {
-      // Try to get credentials one more time before giving up
-      getUserCredentials();
     }
-  }, [userCredentials]);
+  }, [userCredentials, isInitializing]); // Only runs when credentials change
 
-  /* ---------- UI ---------- */
-  if (isLoading && !userCredentials) {
+  // Show loading screen during initialization
+  if (isInitializing) {
     return (
       <View style={[homeStyles.container, homeStyles.loadingContainer]}>
         <ActivityIndicator size="large" color="#ffffff" />
-        <Text style={homeStyles.loadingText}>Loading...</Text>
+        <Text style={homeStyles.loadingText}>Initializing...</Text>
+      </View>
+    );
+  }
+
+  // If no credentials after initialization, show nothing (will redirect to login)
+  if (!userCredentials) {
+    return (
+      <View style={[homeStyles.container, homeStyles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#ffffff" />
+        <Text style={homeStyles.loadingText}>Redirecting to login...</Text>
       </View>
     );
   }
 
   return (
     <View style={[homeStyles.container, { backgroundColor: '#1a1a2e' }]}>
-      {/* ---------- loading overlay ---------- */}
+      {/* Loading overlay */}
       {loadingTab && (
         <View style={homeStyles.loadingOverlay}>
           <ActivityIndicator size="large" color="#fff" />
@@ -517,7 +550,7 @@ const renderProfileImage = (size: number, containerStyle?: any) => {
             <Text style={homeStyles.welcomeName}>{username}</Text>
           </View>
 
-          {/* Grid Container - Updated for single centered item */}
+          {/* Grid Container */}
           <View style={homeStyles.gridContainer}>
             {gridItems.map(renderGridItem)}
           </View>
@@ -539,23 +572,7 @@ const renderProfileImage = (size: number, containerStyle?: any) => {
               <TouchableOpacity activeOpacity={1} style={homeStyles.profileContent}>
                 <View style={homeStyles.profileHeader}>
                   <View style={homeStyles.profileIconContainer}>
-                    {profileImageUri && !imageLoadError ? (
-                      <Image
-                        source={{ 
-                          uri: profileImageUri,
-                          headers: {
-                            'User-Agent': 'YourAppName/1.0',
-                            'Accept': 'image/*',
-                          }
-                        }}
-                        style={homeStyles.profileImage}
-                        onError={handleImageError}
-                        onLoad={() => console.log('Modal image loaded successfully')}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <Ionicons name="person" size={40} color="#1a1a2e" />
-                    )}
+                    {renderProfileImage(80)}
                   </View>
                   <Text style={homeStyles.profileName}>Hello, {username}</Text>
                 </View>
@@ -621,14 +638,8 @@ const homeStyles = StyleSheet.create({
     textAlign: 'center',
     marginVertical: 8,
   },
-  welcomeSubtitle: {
-    fontSize: 16,
-    color: '#cccccc',
-    textAlign: 'center',
-    marginTop: 10,
-  },
 
-  // Grid Styles - Updated for single centered item
+  // Grid Styles
   gridContainer: {
     alignItems: 'center',
     justifyContent: 'center',
