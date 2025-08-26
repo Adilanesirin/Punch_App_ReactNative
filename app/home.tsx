@@ -64,7 +64,15 @@ export default function Home() {
       icon: 'calendar',
       route: 'dashboard',
       color: '#4CAF50'
-    }
+    },
+    {
+      id: '2',
+      title: 'COLLECTION',
+      description:'Manage your collections',
+      icon:'cash',
+      route:'collection',
+      color: '#FF9800'
+    },
   ];
 
   const getUserSpecificKey = (baseKey: string) => {
