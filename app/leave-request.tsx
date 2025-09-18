@@ -13,7 +13,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -46,6 +45,7 @@ const LeaveRequest = () => {
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showLeaveTypeModal, setShowLeaveTypeModal] = useState(false);
+  const [showReasonModal, setShowReasonModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // User credentials state
@@ -123,6 +123,15 @@ const LeaveRequest = () => {
     { label: 'Half Day - Morning', value: 'half_day_morning' },
     { label: 'Half Day - Evening', value: 'half_day_evening' },
     { label: 'Hourly', value: 'hourly' },
+  ];
+
+  // Reason options
+  const reasonOptions = [
+    { label: 'Medical Appointment', value: 'medical_appointment' },
+    { label: 'Bereavement Leave', value: 'bereavement_leave' },
+    { label: 'Family Event', value: 'personal_family_event' },
+    { label: 'Health Emergency', value: 'health_emergency' },
+    { label: 'Dependent Care', value: 'dependent_care' },
   ];
 
   const formatDate = (date: Date): string => {
@@ -253,13 +262,8 @@ const LeaveRequest = () => {
       return false;
     }
     
-    if (!reason.trim()) {
-      Alert.alert('Validation Error', 'Please provide a reason for leave');
-      return false;
-    }
-
-    if (reason.trim().length < 0) {
-      Alert.alert('Validation Error', 'Please provide a more detailed reason (at least 10 characters)');
+    if (!reason) {
+      Alert.alert('Validation Error', 'Please select a reason for leave');
       return false;
     }
     
@@ -272,13 +276,16 @@ const LeaveRequest = () => {
     
     setIsSubmitting(true);
     
+    // Get the readable reason text for submission
+    const selectedReason = reasonOptions.find(option => option.value === reason);
+    
     const requestData: LeaveRequestData = {
       userid: userCredentials.userid, // Now uses actual user credentials
       password: userCredentials.password, // Now uses actual user credentials
       start_date: formatDate(startDate),
       end_date: formatDate(endDate),
       leave_type: leaveType,
-      reason: reason.trim(),
+      reason: selectedReason?.label || reason,
     };
 
     // Create timeout promise
@@ -402,7 +409,7 @@ const LeaveRequest = () => {
   };
 
   const handleClose = () => {
-    const hasChanges = reason.trim() !== '' || 
+    const hasChanges = reason !== '' || 
                       startDate.toDateString() !== new Date().toDateString() ||
                       endDate.toDateString() !== new Date().toDateString() ||
                       leaveType !== 'full_day';
@@ -462,9 +469,6 @@ const LeaveRequest = () => {
 
       <Text style={styles.pageTitle}>LEAVE REQUEST</Text>
       
-      {/* User Info Display */}
-      
-
       <ScrollView 
         style={styles.scrollView} 
         showsVerticalScrollIndicator={false}
@@ -525,20 +529,15 @@ const LeaveRequest = () => {
           {/* Reason */}
           <View style={styles.fieldContainer}>
             <Text style={styles.label}>Reason *</Text>
-            <TextInput
-              style={styles.reasonInput}
-              multiline
-              numberOfLines={4}
-              placeholder="Enter reason for leave ..."
-              placeholderTextColor="#999"
-              value={reason}
-              onChangeText={setReason}
-              textAlignVertical="top"
-              maxLength={500}
-            />
-            <Text style={styles.characterCount}>
-              {reason.length}/500 characters
-            </Text>
+            <TouchableOpacity
+              style={styles.dropdownInput}
+              onPress={() => setShowReasonModal(true)}
+            >
+              <Text style={[styles.dropdownText, !reason && styles.placeholderText]}>
+                {reason ? reasonOptions.find(option => option.value === reason)?.label : 'Select reason for leave'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#007AFF" />
+            </TouchableOpacity>
           </View>
 
           {/* Action Buttons */}
@@ -611,6 +610,45 @@ const LeaveRequest = () => {
                   {option.label}
                 </Text>
                 {leaveType === option.value && (
+                  <Ionicons name="checkmark" size={20} color="#007AFF" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reason Modal */}
+      <Modal
+        visible={showReasonModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReasonModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Reason</Text>
+            {reasonOptions.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.modalOption,
+                  reason === option.value && styles.modalOptionSelected,
+                ]}
+                onPress={() => {
+                  setReason(option.value);
+                  setShowReasonModal(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.modalOptionText,
+                    reason === option.value && styles.modalOptionTextSelected,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                {reason === option.value && (
                   <Ionicons name="checkmark" size={20} color="#007AFF" />
                 )}
               </TouchableOpacity>
@@ -745,22 +783,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
-  reasonInput: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#333',
-    minHeight: 100,
-  },
-  characterCount: {
-    fontSize: 12,
-    color: '#fff',
-    marginTop: 5,
-    textAlign: 'right',
+  placeholderText: {
+    color: '#999',
   },
   infoContainer: {
     flexDirection: 'row',

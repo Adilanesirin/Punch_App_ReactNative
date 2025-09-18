@@ -2,7 +2,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
-import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -99,92 +98,21 @@ export default function Home() {
     return `https://myimc.in/${cleanUrl}`;
   };
 
-  // Function to get cached image path
-  const getCachedImagePath = (userId: string) => {
-    return `${FileSystem.documentDirectory}profile_${userId}.jpg`;
-  };
-
-  // Function to load cached image
-  const loadCachedImage = async (userId: string) => {
-    try {
-      const cachedImagePath = getCachedImagePath(userId);
-      const fileInfo = await FileSystem.getInfoAsync(cachedImagePath);
-      
-      if (fileInfo.exists) {
-        console.log('Loading cached profile image');
-        setProfileImageUri(cachedImagePath);
-        setImageLoadError(false);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error loading cached image:', error);
-      return false;
-    }
-  };
-
-  // Function to download and cache image
-  const downloadAndCacheImage = async (imageUrl: string, userId: string) => {
-    try {
-      setIsImageLoading(true);
-      const cachedImagePath = getCachedImagePath(userId);
-      
-      console.log('Downloading image from:', imageUrl);
-      console.log('Saving to:', cachedImagePath);
-      
-      const downloadResult = await FileSystem.downloadAsync(imageUrl, cachedImagePath);
-      
-      if (downloadResult.status === 200) {
-        console.log('Image downloaded and cached successfully');
-        setProfileImageUri(cachedImagePath);
-        setImageLoadError(false);
-        
-        // Store image metadata in AsyncStorage
-        const imageMetadataKey = getUserSpecificKey('profile_image_metadata');
-        await AsyncStorage.setItem(imageMetadataKey, JSON.stringify({
-          originalUrl: imageUrl,
-          cachedPath: cachedImagePath,
-          downloadDate: new Date().toISOString()
-        }));
-        
-        return true;
-      } else {
-        console.error('Failed to download image, status:', downloadResult.status);
-        return false;
-      }
-    } catch (error) {
-      console.error('Error downloading and caching image:', error);
-      return false;
-    } finally {
-      setIsImageLoading(false);
-    }
-  };
-
-  // Function to handle profile image loading
+  // Function to handle profile image loading - Simplified without file caching
   const handleProfileImageLoading = async (userProfile: UserProfile) => {
     if (!userCredentials?.userId) return;
 
-    // First, try to load cached image
-    const cachedImageLoaded = await loadCachedImage(userCredentials.userId);
+    const imageUrl = userProfile.image_url || userProfile.image;
+    const processedImageUrl = processImageUrl(imageUrl);
     
-    if (!cachedImageLoaded) {
-      // If no cached image, try to download and cache
-      const imageUrl = userProfile.image_url || userProfile.image;
-      const processedImageUrl = processImageUrl(imageUrl);
-      
-      if (processedImageUrl) {
-        const downloadSuccess = await downloadAndCacheImage(processedImageUrl, userCredentials.userId);
-        
-        if (!downloadSuccess) {
-          console.log('Failed to download image, showing fallback');
-          setImageLoadError(true);
-          setProfileImageUri(null);
-        }
-      } else {
-        console.log('No valid image URL found');
-        setImageLoadError(true);
-        setProfileImageUri(null);
-      }
+    if (processedImageUrl) {
+      console.log('Setting profile image URL:', processedImageUrl);
+      setProfileImageUri(processedImageUrl);
+      setImageLoadError(false);
+    } else {
+      console.log('No valid image URL found');
+      setImageLoadError(true);
+      setProfileImageUri(null);
     }
   };
 
@@ -294,22 +222,15 @@ export default function Home() {
     }
   };
 
-  // Function to clear cached image
+  // Function to clear cached image - Simplified
   const clearCachedImage = async (userId: string) => {
     try {
-      const cachedImagePath = getCachedImagePath(userId);
-      const fileInfo = await FileSystem.getInfoAsync(cachedImagePath);
-      
-      if (fileInfo.exists) {
-        await FileSystem.deleteAsync(cachedImagePath);
-        console.log('Cached image cleared');
-      }
-      
-      // Clear image metadata
+      // Just clear image metadata since we're not using file caching
       const imageMetadataKey = `profile_image_metadata_${userId}`;
       await AsyncStorage.removeItem(imageMetadataKey);
+      console.log('Cached image metadata cleared');
     } catch (error) {
-      console.error('Error clearing cached image:', error);
+      console.error('Error clearing cached image metadata:', error);
     }
   };
 
@@ -319,7 +240,7 @@ export default function Home() {
     setImageLoadError(false);
     setProfileImageUri(null);
     
-    // Clear cached image to force refresh
+    // Clear cached image metadata to force refresh
     if (userCredentials?.userId) {
       await clearCachedImage(userCredentials.userId);
     }

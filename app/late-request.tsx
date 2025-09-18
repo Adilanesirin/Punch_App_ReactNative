@@ -30,6 +30,16 @@ interface UserCredentials {
   password: string;
 }
 
+const REASON_OPTIONS = [
+  'Health Emergency',
+  'Medical Appointment',
+  'Dependent Care',
+  'Bereavement',
+  'Transportation Issues',
+  'Accident',
+  
+];
+
 const LateRequest = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -37,10 +47,11 @@ const LateRequest = () => {
   // Form state
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [delayTime, setDelayTime] = useState('');
-  const [reason, setReason] = useState('');
+  const [selectedReason, setSelectedReason] = useState('');
   
   // UI state
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showReasonPicker, setShowReasonPicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // User credentials state
@@ -193,6 +204,57 @@ const LateRequest = () => {
     }
   };
 
+  // Reason picker modal
+  const renderReasonPicker = () => {
+    return (
+      <Modal
+        visible={showReasonPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowReasonPicker(false)}
+      >
+        <View style={styles.reasonPickerModalOverlay}>
+          <View style={styles.reasonPickerModalContent}>
+            <View style={styles.reasonPickerHeader}>
+              <TouchableOpacity onPress={() => setShowReasonPicker(false)}>
+                <Text style={styles.datePickerCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerTitle}>Select Reason</Text>
+              <TouchableOpacity onPress={() => setShowReasonPicker(false)}>
+                <Text style={styles.datePickerDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.reasonOptionsContainer}>
+              {REASON_OPTIONS.map((reason, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.reasonOption,
+                    selectedReason === reason && styles.selectedReasonOption
+                  ]}
+                  onPress={() => {
+                    setSelectedReason(reason);
+                    setShowReasonPicker(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.reasonOptionText,
+                    selectedReason === reason && styles.selectedReasonOptionText
+                  ]}>
+                    {reason}
+                  </Text>
+                  {selectedReason === reason && (
+                    <Ionicons name="checkmark" size={20} color="#007AFF" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   const validateForm = (): boolean => {
     if (!userCredentials.userid || !userCredentials.password) {
       Alert.alert('Authentication Error', 'User credentials not available. Please login again.');
@@ -204,13 +266,8 @@ const LateRequest = () => {
       return false;
     }
     
-    if (!reason.trim()) {
-      Alert.alert('Validation Error', 'Please enter reason for late arrival');
-      return false;
-    }
-
-    if (reason.trim().length < 0) {
-      Alert.alert('Validation Error', 'Please provide a more detailed reason (at least 10 characters)');
+    if (!selectedReason) {
+      Alert.alert('Validation Error', 'Please select a reason for late arrival');
       return false;
     }
     
@@ -228,7 +285,7 @@ const LateRequest = () => {
       password: userCredentials.password, // Now uses actual user credentials
       date: formatDateForAPI(selectedDate),
       delay_time: delayTime.trim(),
-      reason: reason.trim(),
+      reason: selectedReason,
     };
 
     // Create timeout promise
@@ -277,7 +334,7 @@ const LateRequest = () => {
               // Reset form
               setSelectedDate(new Date());
               setDelayTime('');
-              setReason('');
+              setSelectedReason('');
               router.back();
             }
           }]
@@ -342,7 +399,7 @@ const LateRequest = () => {
         onPress: () => {
           setSelectedDate(new Date());
           setDelayTime('');
-          setReason('');
+          setSelectedReason('');
           router.back();
         }
       }]
@@ -350,7 +407,7 @@ const LateRequest = () => {
   };
 
   const handleClose = () => {
-    const hasChanges = reason.trim() !== '' || 
+    const hasChanges = selectedReason !== '' || 
                       delayTime.trim() !== '' ||
                       selectedDate.toDateString() !== new Date().toDateString();
 
@@ -437,20 +494,15 @@ const LateRequest = () => {
           {/* Reason Field */}
           <View style={styles.fieldContainer}>
             <Text style={styles.label}>Reason *</Text>
-            <TextInput
-              style={styles.reasonInput}
-              multiline
-              numberOfLines={4}
-              placeholder="Enter reason for late arrival ..."
-              placeholderTextColor="#999"
-              value={reason}
-              onChangeText={setReason}
-              textAlignVertical="top"
-              maxLength={500}
-            />
-            <Text style={styles.characterCount}>
-              {reason.length}/500 characters
-            </Text>
+            <TouchableOpacity
+              style={styles.dropdownInput}
+              onPress={() => setShowReasonPicker(true)}
+            >
+              <Text style={[styles.dropdownText, !selectedReason && styles.placeholderText]}>
+                {selectedReason || 'Select reason for late arrival'}
+              </Text>
+              <Ionicons name="chevron-down-outline" size={20} color="#007AFF" />
+            </TouchableOpacity>
           </View>
 
           {/* Action Buttons */}
@@ -475,6 +527,9 @@ const LateRequest = () => {
 
       {/* Date Picker */}
       {renderDatePicker()}
+      
+      {/* Reason Picker */}
+      {renderReasonPicker()}
     </View>
   );
 };
@@ -579,22 +634,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
-  reasonInput: {
+  dropdownInput: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
     paddingHorizontal: 15,
     paddingVertical: 12,
+  },
+  dropdownText: {
     fontSize: 16,
     color: '#333',
-    minHeight: 100,
   },
-  characterCount: {
-    fontSize: 12,
-    color: '#fff',
-    marginTop: 5,
-    textAlign: 'right',
+  placeholderText: {
+    color: '#999',
   },
   actionContainer: {
     flexDirection: 'row',
@@ -664,5 +720,53 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 12,
     margin: 15,
+  },
+  reasonPickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  reasonPickerModalContent: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '70%',
+    paddingBottom: Platform.OS === 'ios' ? 30 : 20,
+  },
+  reasonPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  reasonOptionsContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  reasonOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  selectedReasonOption: {
+    backgroundColor: '#007AFF20',
+  },
+  reasonOptionText: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  selectedReasonOptionText: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });
