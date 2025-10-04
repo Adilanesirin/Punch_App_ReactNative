@@ -1,26 +1,20 @@
 /* eslint-disable prettier/prettier */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BlurView } from 'expo-blur';
-import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
+  Dimensions,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 
 interface UserCredentials {
@@ -31,7 +25,8 @@ interface UserCredentials {
 interface Customer {
   id: string;
   name: string;
-  code?: string;
+  place?: string;
+  isManual?: boolean;
 }
 
 interface Branch {
@@ -44,42 +39,51 @@ interface CollectionEntry {
   id: string;
   customerId: string;
   customerName: string;
+  customerPlace?: string;
   branchId: string;
   branchName: string;
   amount: string;
+  notes?: string;
   screenshot: string | null;
   createdAt: string;
-  status: 'draft' | 'submitted';
+  paymentMethod?: 'UPI' | 'cash' | 'cheque' | 'neft';
 }
+
+type PaymentMethod = 'UPI' | 'cash' | 'cheque' | 'neft';
+
+const API_BASE_URL = 'https://myimc.in/app4/api';
+const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
+
+const HARDCODED_BRANCHES: Branch[] = [
+  { id: '1', name: 'IMC MUKKAM' },
+  { id: '2', name: 'IMCB HO' },
+  { id: '3', name: 'IMCB DEV' },
+  { id: '4', name: 'Sysmac Info System' },
+  { id: '5', name: 'Sysmac Computers'},
+  { id: '6', name: 'DQ Technologies' },
+];
+
+const CARD_COLORS = [
+  '#fbf8e7ff',
+  '#fcd9e3ff',
+];
 
 export default function Collection() {
   const router = useRouter();
 
-  // State management
   const [isInitializing, setIsInitializing] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [userCredentials, setUserCredentials] = useState<UserCredentials | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   
-  // Data states
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branches, setBranches] = useState<Branch[]>(HARDCODED_BRANCHES);
   const [collections, setCollections] = useState<CollectionEntry[]>([]);
   
-  // Modal states
-  const [showAddModal, setShowAddModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  
-  // Form states
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
-  const [amount, setAmount] = useState<string>('');
-  const [screenshot, setScreenshot] = useState<string | null>(null);
-  
-  // Dropdown states
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [isLoadingCollections, setIsLoadingCollections] = useState(true);
 
   // Initialize user credentials
   const initializeUser = async () => {
@@ -103,209 +107,330 @@ export default function Collection() {
     }
   };
 
-  // Fetch customers from API (mock data for now)
+  // API call helper
+  const makeAPICall = async (endpoint: string, method: string = 'GET', body: any = null, isFormData: boolean = false) => {
+    try {
+      if (!userCredentials) {
+        throw new Error('User credentials not available');
+      }
+
+      const config: RequestInit = {
+        method,
+        headers: {
+          'Authorization': `Basic ${btoa(`${userCredentials.userId}:${userCredentials.password}`)}`,
+        },
+      };
+
+      if (body && method !== 'GET') {
+        if (isFormData) {
+          config.body = body;
+        } else {
+          config.headers = {
+            ...config.headers,
+            'Content-Type': 'application/json',
+          };
+          config.body = JSON.stringify(body);
+        }
+      }
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+      
+      if (response.status === 404) {
+        throw new Error(`Endpoint not found: ${endpoint}`);
+      }
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error(`API call failed for ${endpoint}:`, error);
+      throw error;
+    }
+  };
+
+  // Load manual customers from storage
+  const loadManualCustomers = async () => {
+    try {
+      if (!userCredentials?.userId) return [];
+      
+      const storageKey = `manual_customers_${userCredentials.userId}`;
+      const storedManualCustomers = await AsyncStorage.getItem(storageKey);
+      
+      if (storedManualCustomers) {
+        return JSON.parse(storedManualCustomers);
+      }
+      return [];
+    } catch (error) {
+      console.error('Error loading manual customers:', error);
+      return [];
+    }
+  };
+
+  // Fetch customers
   const fetchCustomers = async () => {
     try {
-      // Replace this with actual API call
-      const mockCustomers: Customer[] = [
-        { id: '1', name: 'John Doe', code: 'C001' },
-        { id: '2', name: 'Jane Smith', code: 'C002' },
-        { id: '3', name: 'Bob Johnson', code: 'C003' },
-        { id: '4', name: 'Alice Brown', code: 'C004' },
-        { id: '5', name: 'Charlie Wilson', code: 'C005' },
-      ];
+      const response = await makeAPICall('/clients');
       
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setCustomers(mockCustomers);
-      
-      // Cache the data
-      await AsyncStorage.setItem('cached_customers', JSON.stringify(mockCustomers));
-    } catch (error) {
-      console.error('Error fetching customers:', error);
-      // Try to load cached data
-      try {
-        const cachedCustomers = await AsyncStorage.getItem('cached_customers');
-        if (cachedCustomers) {
-          setCustomers(JSON.parse(cachedCustomers));
-        }
-      } catch (cacheError) {
-        console.error('Error loading cached customers:', cacheError);
+      if (response && Array.isArray(response)) {
+        const formattedCustomers: Customer[] = response.map((customer: any, index: number) => ({
+          id: customer.code || customer.id?.toString() || index.toString(),
+          name: customer.name,
+          place: customer.place || customer.location || customer.address || customer.address3 || '',
+          isManual: false,
+        }));
+        
+        const manualCustomers = await loadManualCustomers();
+        const allCustomers = [...formattedCustomers, ...manualCustomers];
+        
+        setCustomers(prevCustomers => {
+          if (JSON.stringify(prevCustomers) === JSON.stringify(allCustomers)) {
+            return prevCustomers;
+          }
+          return allCustomers;
+        });
+        
+        await AsyncStorage.setItem('cached_customers', JSON.stringify(formattedCustomers));
+        return;
       }
+    } catch (error) {
+      console.log('Error fetching customers, using cache/mock:', error);
+    }
+    
+    await loadCustomersFromCache();
+  };
+
+  // Load customers from cache
+  const loadCustomersFromCache = async () => {
+    try {
+      const cachedCustomers = await AsyncStorage.getItem('cached_customers');
+      const manualCustomers = await loadManualCustomers();
+      
+      if (cachedCustomers) {
+        const parsed = JSON.parse(cachedCustomers);
+        setCustomers([...parsed, ...manualCustomers]);
+        return;
+      }
+    } catch (cacheError) {
+      console.log('No cached customers found');
+    }
+    
+    const mockCustomers: Customer[] = [
+      { id: 'IN', name: 'ICON RESIDENCY', place: 'OOTY ROAD MEPPADI', isManual: false },
+      { id: 'IM128', name: 'INDO SPICES & PULSES', place: 'HUNSOOR (RITS Wayanad)', isManual: false },
+      { id: 'IM131', name: 'HITLER MENS WEAR', place: 'SULTHAN BATHERY', isManual: false },
+      { id: 'IM132', name: 'HIGHNESS GRILLS RESTAURANT', place: 'KALPETTA', isManual: false },
+      { id: 'IM133', name: 'FAMILY HYPERMART MUKKAM', place: 'MUKKAM', isManual: false },
+      { id: 'IM134', name: 'LOYAL ENTERPRISES', place: 'KOZHIKODE', isManual: false },
+      { id: 'IM135', name: 'CV SUPERMARKET', place: 'WAYANAD', isManual: false },
+    ];
+    
+    const manualCustomers = await loadManualCustomers();
+    setCustomers([...mockCustomers, ...manualCustomers]);
+    await AsyncStorage.setItem('cached_customers', JSON.stringify(mockCustomers));
+  };
+
+  // Initialize branches
+  const initializeBranches = async () => {
+    setBranches(HARDCODED_BRANCHES);
+    await AsyncStorage.setItem('cached_branches', JSON.stringify(HARDCODED_BRANCHES));
+  };
+
+  // Get payment method from local storage
+  const getPaymentMethodFromLocalStorage = async (collectionId: string): Promise<PaymentMethod | null> => {
+    try {
+      if (!userCredentials?.userId) return null;
+      
+      const storageKey = `collection_payment_methods_${userCredentials.userId}`;
+      const storedPaymentMethods = await AsyncStorage.getItem(storageKey);
+      
+      if (storedPaymentMethods) {
+        const paymentMethods = JSON.parse(storedPaymentMethods);
+        return paymentMethods[collectionId] || null;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting payment method from local storage:', error);
+      return null;
     }
   };
 
-  // Fetch branches from API (mock data for now)
-  const fetchBranches = async () => {
+  // Fetch collections
+  const fetchCollections = async () => {
     try {
-      // Replace this with actual API call
-      const mockBranches: Branch[] = [
-        { id: '1', name: 'Main Branch', code: 'B001' },
-        { id: '2', name: 'Downtown Branch', code: 'B002' },
-        { id: '3', name: 'North Branch', code: 'B003' },
-        { id: '4', name: 'South Branch', code: 'B004' },
-        { id: '5', name: 'East Branch', code: 'B005' },
-      ];
+      setIsLoadingCollections(true);
       
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setBranches(mockBranches);
-      
-      // Cache the data
-      await AsyncStorage.setItem('cached_branches', JSON.stringify(mockBranches));
-    } catch (error) {
-      console.error('Error fetching branches:', error);
-      // Try to load cached data
-      try {
-        const cachedBranches = await AsyncStorage.getItem('cached_branches');
-        if (cachedBranches) {
-          setBranches(JSON.parse(cachedBranches));
-        }
-      } catch (cacheError) {
-        console.error('Error loading cached branches:', cacheError);
+      if (customers.length === 0) {
+        await fetchCustomers();
       }
+      
+      const response = await makeAPICall('/collections');
+      
+      if (response && response.data && Array.isArray(response.data)) {
+        const collectionsWithPaymentMethods: CollectionEntry[] = [];
+        
+        for (let index = 0; index < response.data.length; index++) {
+          const collection = response.data[index];
+          let screenshotUrl = collection.payment_screenshot || collection.screenshot || collection.screenshot_url;
+          
+          if (screenshotUrl && !screenshotUrl.startsWith('http') && !screenshotUrl.startsWith('data:') && !screenshotUrl.startsWith('file:')) {
+            if (screenshotUrl.startsWith('/')) {
+              screenshotUrl = `https://myimc.in${screenshotUrl}`;
+            } else {
+              screenshotUrl = `https://myimc.in/${screenshotUrl}`;
+            }
+          }
+          
+          const displayNotes = collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
+            ? collection.notes 
+            : 'No notes';
+          
+          let customerPlace = collection.client_place || 
+                             collection.customer_place || 
+                             collection.place || 
+                             collection.location || 
+                             collection.address || 
+                             collection.client_address ||
+                             collection.customer_address ||
+                             '';
+          
+          if (!customerPlace || customerPlace.trim() === '') {
+            const nameToMatch = collection.client_name || collection.customer_name || '';
+            let matchedCustomer = null;
+            
+            if (nameToMatch) {
+              matchedCustomer = customers.find(c => 
+                c.name.toLowerCase() === nameToMatch.toLowerCase()
+              );
+              if (matchedCustomer) {
+                customerPlace = matchedCustomer.place || '';
+              }
+            }
+            
+            if (!matchedCustomer && nameToMatch) {
+              matchedCustomer = customers.find(c => 
+                c.name.toLowerCase().includes(nameToMatch.toLowerCase()) ||
+                nameToMatch.toLowerCase().includes(c.name.toLowerCase())
+              );
+              if (matchedCustomer) {
+                customerPlace = matchedCustomer.place || '';
+              }
+            }
+            
+            if (!matchedCustomer && (collection.customer_id || collection.client_id)) {
+              const idToMatch = (collection.customer_id || collection.client_id)?.toString();
+              matchedCustomer = customers.find(c => c.id === idToMatch);
+              if (matchedCustomer) {
+                customerPlace = matchedCustomer.place || '';
+              }
+            }
+          }
+          
+          const collectionId = collection.id?.toString() || index.toString();
+          
+          let paymentMethod: PaymentMethod = 'UPI';
+          if (collectionId) {
+            const storedPaymentMethod = await getPaymentMethodFromLocalStorage(collectionId);
+            if (storedPaymentMethod) {
+              paymentMethod = storedPaymentMethod;
+            }
+          }
+          
+          collectionsWithPaymentMethods.push({
+            id: collectionId,
+            customerId: collection.customer_id?.toString() || collection.client_id?.toString() || '',
+            customerName: collection.client_name || collection.customer_name || 'Unknown Customer',
+            customerPlace: customerPlace || '',
+            branchId: collection.branch_id?.toString() || '',
+            branchName: collection.branch || collection.branch_name || 'Unknown Branch',
+            amount: collection.amount?.toString() || '0',
+            notes: displayNotes,
+            screenshot: screenshotUrl,
+            createdAt: collection.created_at || collection.createdAt || new Date().toISOString(),
+            paymentMethod: paymentMethod,
+          });
+        }
+        
+        setCollections(collectionsWithPaymentMethods);
+      }
+    } catch (error) {
+      console.error('Error fetching collections:', error);
+      await loadCachedCollections();
+    } finally {
+      setIsLoadingCollections(false);
     }
   };
 
-  // Load collections from storage
-  const loadCollections = async () => {
+  // Load cached collections
+  const loadCachedCollections = async () => {
     try {
-      if (!userCredentials?.userId) return;
+      if (!userCredentials?.userId) {
+        return;
+      }
       
       const storageKey = `collections_${userCredentials.userId}`;
       const storedCollections = await AsyncStorage.getItem(storageKey);
       
       if (storedCollections) {
-        setCollections(JSON.parse(storedCollections));
+        const collectionsData: CollectionEntry[] = JSON.parse(storedCollections);
+        
+        const fixedCollections = collectionsData.map((collection) => {
+          let customerPlace = collection.customerPlace;
+          if (!customerPlace || customerPlace.trim() === '') {
+            const customerData = customers.find(c => c.id === collection.customerId || c.name === collection.customerName);
+            if (customerData && customerData.place) {
+              customerPlace = customerData.place;
+            }
+          }
+          
+          return {
+            ...collection,
+            customerPlace: customerPlace || '',
+            notes: collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
+              ? collection.notes 
+              : 'No notes',
+            screenshot: collection.screenshot,
+            paymentMethod: collection.paymentMethod || 'UPI',
+          };
+        });
+        
+        setCollections(fixedCollections);
       }
     } catch (error) {
-      console.error('Error loading collections:', error);
+      console.error('Error loading cached collections:', error);
     }
   };
 
-  // Save collections to storage
-  const saveCollections = async (newCollections: CollectionEntry[]) => {
-    try {
-      if (!userCredentials?.userId) return;
-      
-      const storageKey = `collections_${userCredentials.userId}`;
-      await AsyncStorage.setItem(storageKey, JSON.stringify(newCollections));
-      setCollections(newCollections);
-    } catch (error) {
-      console.error('Error saving collections:', error);
-    }
-  };
-
-  // Handle image picker
-  const pickImage = async () => {
-    try {
-      // Request permission
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Sorry, we need camera roll permissions to select images.'
-        );
-        return;
-      }
-
-      // Pick image
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.8,
-        base64: false,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setScreenshot(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
-    }
-  };
-
-  // Reset form
-  const resetForm = () => {
-    setSelectedCustomerId('');
-    setSelectedBranchId('');
-    setAmount('');
-    setScreenshot(null);
-    setShowCustomerDropdown(false);
-    setShowBranchDropdown(false);
-  };
-
-  // Handle form submission
-  const handleSubmit = async () => {
-    // Validation
-    if (!selectedCustomerId) {
-      Alert.alert('Validation Error', 'Please select a customer.');
-      return;
-    }
-    
-    if (!selectedBranchId) {
-      Alert.alert('Validation Error', 'Please select a branch.');
-      return;
-    }
-    
-    if (!amount.trim()) {
-      Alert.alert('Validation Error', 'Please enter an amount.');
-      return;
-    }
-    
-    if (!screenshot) {
-      Alert.alert('Validation Error', 'Please add a screenshot.');
-      return;
-    }
-
-    try {
-      const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
-      const selectedBranch = branches.find(b => b.id === selectedBranchId);
-      
-      if (!selectedCustomer || !selectedBranch) {
-        Alert.alert('Error', 'Selected customer or branch not found.');
-        return;
-      }
-
-      const newEntry: CollectionEntry = {
-        id: Date.now().toString(),
-        customerId: selectedCustomerId,
-        customerName: selectedCustomer.name,
-        branchId: selectedBranchId,
-        branchName: selectedBranch.name,
-        amount: amount.trim(),
-        screenshot,
-        createdAt: new Date().toISOString(),
-        status: 'draft',
-      };
-
-      const updatedCollections = [newEntry, ...collections];
-      await saveCollections(updatedCollections);
-      
-      resetForm();
-      setShowAddModal(false);
-      
-      Alert.alert('Success', 'Collection entry added successfully!');
-    } catch (error) {
-      console.error('Error submitting form:', error);
-      Alert.alert('Error', 'Failed to add collection entry. Please try again.');
-    }
-  };
+  // Handle image error
+  const handleImageError = useCallback((imageUrl: string) => {
+    setImageErrors(prev => new Set([...prev, imageUrl]));
+  }, []);
 
   // Handle refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([
-      fetchCustomers(),
-      fetchBranches(),
-      loadCollections(),
-    ]);
+    setImageErrors(new Set());
+    setIsLoadingCollections(true);
+    
+    await fetchCustomers();
+    await initializeBranches();
+    await fetchCollections();
+    
     setRefreshing(false);
   }, [userCredentials]);
+
+  // Handle edit collection - navigate to add collection page with edit data
+  const handleEditCollection = useCallback((collection: CollectionEntry) => {
+    router.push({
+      pathname: '/addcollection',
+      params: {
+        editData: JSON.stringify(collection)
+      }
+    });
+  }, [router]);
 
   // Initialize
   useEffect(() => {
@@ -316,85 +441,152 @@ export default function Collection() {
     init();
   }, []);
 
-  // Load data when credentials are available
+  // Load data
   useEffect(() => {
-    if (userCredentials && !isInitializing) {
-      Promise.all([
-        fetchCustomers(),
-        fetchBranches(),
-        loadCollections(),
-      ]);
+    if (userCredentials && !isInitializing && !isLoadingData) {
+      const loadData = async () => {
+        setIsLoadingData(true);
+        setIsLoadingCollections(true);
+        try {
+          await fetchCustomers();
+          await initializeBranches();
+          await fetchCollections();
+        } catch (error) {
+          console.error('Error loading data:', error);
+        } finally {
+          setIsLoadingData(false);
+        }
+      };
+      loadData();
     }
   }, [userCredentials, isInitializing]);
 
-  // Render customer dropdown item
-  const renderCustomerItem = (customer: Customer) => (
-    <TouchableOpacity
-      key={customer.id}
-      style={styles.dropdownItem}
-      onPress={() => {
-        setSelectedCustomerId(customer.id);
-        setShowCustomerDropdown(false);
-      }}
-    >
-      <Text style={styles.dropdownItemText}>
-        {customer.name} {customer.code ? `(${customer.code})` : ''}
-      </Text>
-    </TouchableOpacity>
-  );
+  // Render thumbnail image
+  const renderThumbnailImage = (item: CollectionEntry) => {
+    const imageUrl = item.screenshot;
+    const hasError = imageErrors.has(imageUrl || '');
+    
+    if (!imageUrl || hasError) {
+      return (
+        <View style={styles.thumbnailPlaceholder}>
+          <Ionicons name="image-outline" size={32} color="#666" />
+          <Text style={styles.noImageText}>No Image</Text>
+        </View>
+      );
+    }
 
-  // Render branch dropdown item
-  const renderBranchItem = (branch: Branch) => (
-    <TouchableOpacity
-      key={branch.id}
-      style={styles.dropdownItem}
-      onPress={() => {
-        setSelectedBranchId(branch.id);
-        setShowBranchDropdown(false);
-      }}
-    >
-      <Text style={styles.dropdownItemText}>
-        {branch.name} {branch.code ? `(${branch.code})` : ''}
-      </Text>
-    </TouchableOpacity>
-  );
+    return (
+      <Image
+        source={{ uri: imageUrl }}
+        style={styles.thumbnailImage}
+        onError={() => handleImageError(imageUrl)}
+        resizeMode="cover"
+      />
+    );
+  };
 
   // Render collection item
-  const renderCollectionItem = ({ item, index }: { item: CollectionEntry; index: number }) => (
-    <View style={[styles.tableRow, index % 2 === 1 && styles.tableRowAlternate]}>
-      <View style={styles.tableCell}>
-        <Text style={styles.tableCellText} numberOfLines={2}>
-          {item.customerName}
-        </Text>
-      </View>
-      <View style={styles.tableCell}>
-        <Text style={styles.tableCellText} numberOfLines={2}>
-          {item.branchName}
-        </Text>
-      </View>
-      <View style={styles.tableCell}>
-        <TouchableOpacity
-          onPress={() => {
-            setSelectedImage(item.screenshot);
-            setShowImageModal(true);
-          }}
-        >
-          {item.screenshot ? (
-            <Image source={{ uri: item.screenshot }} style={styles.thumbnailImage} />
-          ) : (
-            <View style={styles.noImageContainer}>
-              <Text style={styles.noImageText}>No Image</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-      <View style={styles.tableCell}>
-        <Text style={styles.tableCellText}>₹{item.amount}</Text>
-      </View>
-    </View>
-  );
+  const renderCollectionItem = useCallback(({ item, index }: { item: CollectionEntry; index: number }) => {
+    const cardColor = CARD_COLORS[index % CARD_COLORS.length];
+    
+    const getDisplayPlace = () => {
+      if (item.customerPlace && item.customerPlace.trim() !== '') {
+        return item.customerPlace;
+      }
+      
+      const customer = customers.find(c => 
+        c.id === item.customerId || 
+        c.name === item.customerName
+      );
+      
+      return customer?.place || '';
+    };
 
-  // Show loading screen during initialization
+    const displayPlace = getDisplayPlace();
+    const hasPlace = displayPlace.trim() !== '';
+
+    const getPaymentMethodConfig = (method: PaymentMethod) => {
+      switch (method) {
+        case 'UPI':
+          return { color: '#1f2221ff', bgColor: '#55b82eff', label: 'UPI'};
+        case 'cash':
+          return { color: '#302b28ff', bgColor: '#d9a925ff', label: 'Cash' };
+        case 'cheque':
+          return { color: '#efeef6ff', bgColor: '#b74ed4ff', label: 'Cheque' };
+        case 'neft':
+          return { color: '#201c24ff', bgColor: '#df1537ff', label: 'NEFT' };
+        default:
+          return { color: '#666', bgColor: '#F3F4F6', label: 'Payment' };
+      }
+    };
+
+    const paymentConfig = getPaymentMethodConfig(item.paymentMethod || 'UPI');
+
+    return (
+      <View style={[styles.collectionCard, { backgroundColor: cardColor }]}>
+        <View style={styles.cardTopSection}>
+          <TouchableOpacity 
+            style={styles.editButton}
+            onPress={() => handleEditCollection(item)}
+          >
+            <Ionicons name="create-outline" size={10} color="#dde0ecff" />
+            <Text style={styles.editButtonText}>Edit</Text>
+          </TouchableOpacity>
+          
+          <View style={[styles.paymentMethodTag, { backgroundColor: paymentConfig.bgColor }]}>
+            <Text style={[styles.paymentMethodText, { color: paymentConfig.color }]}>
+              {paymentConfig.label}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.cardContent}>
+          <TouchableOpacity 
+            style={styles.screenshotContainer}
+            onPress={() => {
+              if (item.screenshot && !imageErrors.has(item.screenshot)) {
+                setSelectedImage(item.screenshot);
+                setShowImageModal(true);
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            {renderThumbnailImage(item)}
+          </TouchableOpacity>
+
+          <View style={styles.detailsContainer}>
+            <Text style={styles.customerName} numberOfLines={1}>
+              {item.customerName}
+            </Text>
+
+            {hasPlace && (
+              <View style={styles.detailRow}>
+                <Ionicons name="location-outline" size={16} color="#5d28d8ff" />
+                <Text style={styles.placeText} numberOfLines={2}>
+                  {displayPlace}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.detailRow}>
+              <Ionicons name="business-outline" size={16} color="#dd2222ff" />
+              <Text style={styles.branchText} numberOfLines={1}>
+                {item.branchName}
+              </Text>
+            </View>
+
+            <View style={styles.amountContainer}>
+              <Text style={styles.amountText}>
+                ₹{parseFloat(item.amount).toLocaleString('en-IN')}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }, [handleEditCollection, imageErrors, handleImageError, customers]);
+
+  // Show loading indicator
   if (isInitializing) {
     return (
       <View style={styles.loadingContainer}>
@@ -404,13 +596,8 @@ export default function Collection() {
     );
   }
 
-  // Get selected customer and branch names for display
-  const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
-  const selectedBranch = branches.find(b => b.id === selectedBranchId);
-
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -421,29 +608,12 @@ export default function Collection() {
         <Text style={styles.headerTitle}>COLLECTIONS</Text>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setShowAddModal(true)}
+          onPress={() => router.push('/addcollection')}
         >
           <Ionicons name="add" size={24} color="#ffffff" />
         </TouchableOpacity>
       </View>
 
-      {/* Table Header */}
-      <View style={styles.tableHeader}>
-        <View style={styles.tableHeaderCell}>
-          <Text style={styles.tableHeaderText}>Customer</Text>
-        </View>
-        <View style={styles.tableHeaderCell}>
-          <Text style={styles.tableHeaderText}>Branch</Text>
-        </View>
-        <View style={styles.tableHeaderCell}>
-          <Text style={styles.tableHeaderText}>Screenshot</Text>
-        </View>
-        <View style={styles.tableHeaderCell}>
-          <Text style={styles.tableHeaderText}>Amount</Text>
-        </View>
-      </View>
-
-      {/* Table Content */}
       <FlatList
         data={collections}
         renderItem={renderCollectionItem}
@@ -455,136 +625,22 @@ export default function Collection() {
             tintColor="#ffffff"
           />
         }
-        contentContainerStyle={styles.tableContent}
+        contentContainerStyle={styles.listContent}
         ListEmptyComponent={
+          isLoadingCollections ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#ffffff" />
+              <Text style={styles.loadingText}>Loading collections...</Text>
+            </View>
+          ) : (
           <View style={styles.emptyContainer}>
             <Ionicons name="folder-open-outline" size={48} color="#666" />
             <Text style={styles.emptyText}>No collections yet</Text>
             <Text style={styles.emptySubText}>Tap + to add your first collection entry</Text>
           </View>
+          )
         }
       />
-
-      {/* Add Collection Modal */}
-      <Modal
-        visible={showAddModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowAddModal(false)}
-      >
-        <KeyboardAvoidingView 
-          style={styles.keyboardAvoidingView} 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
-          <View style={styles.modalOverlay}>
-            <BlurView intensity={90} style={styles.modalContainer}>
-              <ScrollView 
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollViewContent}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.modalContent}>
-                  {/* Modal Header */}
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Add Collection</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        resetForm();
-                        setShowAddModal(false);
-                      }}
-                    >
-                      <Ionicons name="close" size={24} color="#333" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Customer Selection */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Customer *</Text>
-                    <TouchableOpacity
-                      style={styles.dropdownButton}
-                      onPress={() => setShowCustomerDropdown(!showCustomerDropdown)}
-                    >
-                      <Text style={[styles.dropdownButtonText, !selectedCustomer && styles.placeholderText]}>
-                        {selectedCustomer ? `${selectedCustomer.name} ${selectedCustomer.code ? `(${selectedCustomer.code})` : ''}` : 'Select Customer'}
-                      </Text>
-                      <Ionicons name="chevron-down" size={20} color="#666" />
-                    </TouchableOpacity>
-                    
-                    {showCustomerDropdown && (
-                      <View style={styles.dropdown}>
-                        {customers.map(renderCustomerItem)}
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Branch Selection */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Branch *</Text>
-                    <TouchableOpacity
-                      style={styles.dropdownButton}
-                      onPress={() => setShowBranchDropdown(!showBranchDropdown)}
-                    >
-                      <Text style={[styles.dropdownButtonText, !selectedBranch && styles.placeholderText]}>
-                        {selectedBranch ? `${selectedBranch.name} ${selectedBranch.code ? `(${selectedBranch.code})` : ''}` : 'Select Branch'}
-                      </Text>
-                      <Ionicons name="chevron-down" size={20} color="#666" />
-                    </TouchableOpacity>
-                    
-                    {showBranchDropdown && (
-                      <View style={styles.dropdown}>
-                        {branches.map(renderBranchItem)}
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Amount Input */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Amount *</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Enter amount"
-                      value={amount}
-                      onChangeText={setAmount}
-                      keyboardType="numeric"
-                      placeholderTextColor="#999"
-                    />
-                  </View>
-
-                  {/* Screenshot Selection */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Screenshot *</Text>
-                    <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
-                      {screenshot ? (
-                        <Image source={{ uri: screenshot }} style={styles.previewImage} />
-                      ) : (
-                        <View style={styles.imageButtonContent}>
-                          <Ionicons name="camera-outline" size={32} color="#666" />
-                          <Text style={styles.imageButtonText}>Add Screenshot</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Submit Button */}
-                  <TouchableOpacity
-                    style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-                    onPress={handleSubmit}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={styles.submitButtonText}>Add Collection</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            </BlurView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
       {/* Image View Modal */}
       <Modal
@@ -599,7 +655,14 @@ export default function Collection() {
         >
           <View style={styles.imageModalContent}>
             {selectedImage && (
-              <Image source={{ uri: selectedImage }} style={styles.fullImage} />
+              <Image 
+                source={{ uri: selectedImage }} 
+                style={styles.fullImage}
+                onError={() => {
+                  setShowImageModal(false);
+                }}
+                resizeMode="contain"
+              />
             )}
             <TouchableOpacity
               style={styles.closeImageButton}
@@ -623,6 +686,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 60,
     backgroundColor: '#1a1a2e',
   },
   loadingText: {
@@ -643,7 +707,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-   backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -660,97 +724,120 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
- tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#fffffff8', // White background
-    borderTopLeftRadius: 15, // Curved top corners
-    borderTopRightRadius: 15,
-    marginHorizontal: 10, // Add margin for better appearance
-    marginTop: 10,
-    elevation: 2, // Android shadow
-    shadowColor: '#000', // iOS shadow
-    shadowOffset: { width: 0, height: 2 },
+  listContent: {
+    padding: 16,
+    paddingBottom: 20,
+  },
+  collectionCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    borderBottomWidth: 2,
-    borderBottomColor: '#0a064ada',
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-   tableHeaderCell: {
-    flex: 1,
-    paddingVertical: 15,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-  },
-  tableHeaderText: {
-    color: '#19086dff', // Dark text for contrast
-    fontWeight: 'bold',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-   tableContent: {
-    flexGrow: 1,
-    marginHorizontal: 10, // Match header margin
-    backgroundColor: '#fffffff5', // White background
-    borderBottomLeftRadius: 15, // Curved bottom corners
-    borderBottomRightRadius: 15,
-    elevation: 2, // Android shadow
-    shadowColor: '#000', // iOS shadow
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    overflow: 'hidden', // Ensure content respects border radius
-  },
- tableRow: {
+  cardTopSection: {
     flexDirection: 'row',
-    backgroundColor: '#fffffff5', // Default white background
-    borderBottomWidth: 1,
-    borderBottomColor: '#dbdddfff', // Light gray border
-    minHeight: 70,
-  },
-   tableRowAlternate: {
-    backgroundColor: '#f1f5f9ff', // Very light gray for alternating rows
-  },
- tableCell: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
- tableCellText: {
-    color: '#0b088fff', // Dark text for readability
-    fontSize: 13,
-    textAlign: 'center',
-  },
-
-   thumbnailImage: {
-    width: 40,
-    height: 40,
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#091e61ff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0', // Light border for definition
   },
-  noImageContainer: {
-    width: 40,
-    height: 40,
+  editButtonText: {
+    color: '#dcdfebff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  paymentMethodTag: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  paymentMethodText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  cardContent: {
+    flexDirection: 'row',
+  },
+  screenshotContainer: {
+    width: 100,
+    height: 100,
     borderRadius: 8,
-    backgroundColor: '#f0f0f0', // Light gray background
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    overflow: 'hidden',
+    marginRight: 16,
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  thumbnailPlaceholder: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   noImageText: {
-    color: '#666666',
-    fontSize: 8,
-    textAlign: 'center',
+    fontSize: 10,
+    color: '#666',
+    marginTop: 4,
+  },
+  detailsContainer: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  customerName: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  placeText: {
+    fontSize: 14,
+    color: '#5d28d8ff',
+    marginLeft: 6,
+    flex: 1,
+  },
+  branchText: {
+    fontSize: 14,
+    color: '#b93942ff',
+    marginLeft: 6,
+    flex: 1,
+  },
+  amountContainer: {
+    marginTop: 8,
+  },
+  amountText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#059669',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 60,
-    backgroundColor: '#ffffffff', 
   },
   emptyText: {
     color: '#666666',
@@ -763,142 +850,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
-  },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: 'hidden',
-    maxHeight: '85%',
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollViewContent: {
-    flexGrow: 1,
-  },
-  modalContent: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-    minHeight: '100%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  inputGroup: {
-    marginTop: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  dropdownButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  dropdownButtonText: {
-    fontSize: 16,
-    color: '#333',
-    flex: 1,
-  },
-  placeholderText: {
-    color: '#999',
-  },
-  dropdown: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    marginTop: 5,
-    maxHeight: 200,
-    zIndex: 1000,
-    elevation: 5,
-  },
-  dropdownItem: {
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  dropdownItemText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  textInput: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    fontSize: 16,
-    color: '#333',
-  },
-  imageButton: {
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    minHeight: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageButtonContent: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  imageButtonText: {
-    color: '#666',
-    fontSize: 16,
-    marginTop: 8,
-  },
-  previewImage: {
-    width: '100%',
-    height: 100,
-    borderRadius: 8,
-  },
-  submitButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 30,
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#999',
-  },
-  submitButtonText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    paddingHorizontal: 40,
   },
   imageModalOverlay: {
     flex: 1,
@@ -907,23 +859,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   imageModalContent: {
-    width: '90%',
-    height: '70%',
+    width: screenWidth * 0.9,
+    height: screenHeight * 0.8,
     position: 'relative',
+    backgroundColor: 'transparent',
+    borderRadius: 10,
+    overflow: 'hidden',
   },
   fullImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 10,
+    resizeMode: 'contain',
+    backgroundColor: 'transparent',
   },
   closeImageButton: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    top: 20,
+    right: 20,
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },

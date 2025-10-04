@@ -54,7 +54,7 @@ export default function Home() {
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
 
-  // Grid items configuration
+  // Grid items configuration - Added 4 more items
   const gridItems: GridItem[] = [
     {
       id: '1',
@@ -71,6 +71,38 @@ export default function Home() {
       icon:'cash',
       route:'collection',
       color: '#FF9800'
+    },
+    {
+      id: '3',
+      title: 'FEEDER',
+      description: 'Manage feeder operations',
+      icon: 'flash',
+      route: 'feeder',
+      color: '#2196F3'
+    },
+    {
+      id: '4',
+      title: 'FUEL',
+      description: 'Fuel management & tracking',
+      icon: 'flame',
+      route: 'fuel',
+      color: '#FF5722'
+    },
+    {
+      id: '5',
+      title: 'LEADS',
+      description: 'Manage customer leads',
+      icon: 'people',
+      route: 'leads',
+      color: '#9C27B0'
+    },
+    {
+      id: '6',
+      title: 'TARGET',
+      description: 'Track targets & goals',
+      icon: 'trending-up',
+      route: 'target',
+      color: '#009688'
     },
   ];
 
@@ -327,8 +359,7 @@ export default function Home() {
     // Show loading indicator if image is being downloaded
     if (isImageLoading) {
       return (
-        <View style={[
-          {
+        <View style={[{
             width: size,
             height: size,
             borderRadius: size / 2,
@@ -346,8 +377,7 @@ export default function Home() {
     // Always show fallback if no URI or error occurred
     if (!profileImageUri || imageLoadError) {
       return (
-        <View style={[
-          {
+        <View style={[{
             width: size,
             height: size,
             borderRadius: size / 2,
@@ -389,7 +419,7 @@ export default function Home() {
     );
   };
 
-  // Render grid item
+  // Render grid item with smaller size
   const renderGridItem = (item: GridItem) => (
     <TouchableOpacity
       key={item.id}
@@ -400,7 +430,7 @@ export default function Home() {
       <BlurView intensity={80} tint="light" style={homeStyles.gridItemBlur}>
         <View style={homeStyles.gridItemContent}>
           <View style={[homeStyles.gridIconContainer, { backgroundColor: `${item.color}20` }]}>
-            <Ionicons name={item.icon as any} size={40} color={item.color} />
+            <Ionicons name={item.icon as any} size={26} color={item.color} />
           </View>
           <Text style={homeStyles.gridItemTitle}>{item.title}</Text>
           <Text style={homeStyles.gridItemDescription}>{item.description}</Text>
@@ -479,9 +509,17 @@ export default function Home() {
             <Text style={homeStyles.welcomeName}>{username}</Text>
           </View>
 
-          {/* Grid Container */}
+          {/* Grid Container with 2x2 layout */}
           <View style={homeStyles.gridContainer}>
-            {gridItems.map(renderGridItem)}
+            <View style={homeStyles.gridRow}>
+              {gridItems.slice(0, 2).map(renderGridItem)}
+            </View>
+            <View style={homeStyles.gridRow}>
+              {gridItems.slice(2, 4).map(renderGridItem)}
+            </View>
+            <View style={homeStyles.gridRow}>
+              {gridItems.slice(4, 6).map(renderGridItem)}
+            </View>
           </View>
         </ScrollView>
 
@@ -543,7 +581,7 @@ const homeStyles = StyleSheet.create({
   profileIconButton: { padding: 5 },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12, // Reduced horizontal padding
     paddingTop: 20,
     paddingBottom: 30,
   },
@@ -551,75 +589,84 @@ const homeStyles = StyleSheet.create({
   // Welcome Section Styles
   welcomeSection: {
     alignItems: 'center',
-    marginBottom: 40,
-    paddingVertical: 20,
+    marginBottom: 20, // Reduced margin
+    paddingVertical: 10,
   },
   welcomeTitle: {
-    fontSize: 24,
+    fontSize: 20, // Reduced font size
     color: '#ffffff',
     fontWeight: '300',
     textAlign: 'center',
   },
   welcomeName: {
-    fontSize: 28,
+    fontSize: 22, // Reduced font size
     color: '#00ddff',
     fontWeight: 'bold',
     textAlign: 'center',
-    marginVertical: 8,
+    marginVertical: 4, // Reduced margin
   },
 
-  // Grid Styles
+  // Grid Styles - Reduced breadth (width) of cards
   gridContainer: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  gridRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 8, // Reduced margin
+  },
   gridItem: {
-    width: '80%',
-    maxWidth: 300,
-    marginBottom: 16,
-    borderRadius: 20,
+    width: '48%', // Reduced width percentage
+    height: 150, // Slightly reduced height
+    borderRadius: 14, // Slightly smaller border radius
     overflow: 'hidden',
-    elevation: 8,
+    backgroundColor: 'rgba(13, 193, 233, 0.93)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     shadowColor: '#000',
     shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   gridItemBlur: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+    flex: 1,
   },
   gridItemContent: {
-    paddingVertical: 40,
-    paddingHorizontal: 24,
+    paddingVertical: 12, // Reduced padding
+    paddingHorizontal: 8, // Reduced padding
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
-    minHeight: 180,
     justifyContent: 'center',
+    flex: 1,
   },
   gridIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 45, // Reduced size
+    height: 45, // Reduced size
+    borderRadius: 22.5,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 2,
+    marginBottom: 6, // Reduced margin
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   gridItemTitle: {
-    fontSize: 20,
+    fontSize: 13, // Reduced font size
     fontWeight: 'bold',
     color: '#1a1a2e',
-    marginBottom: 8,
+    marginBottom: 3, // Reduced margin
     textAlign: 'center',
   },
   gridItemDescription: {
-    fontSize: 14,
+    fontSize: 10, // Reduced font size
     color: '#6b7280',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 12, // Reduced line height
   },
 
   // Modal Styles
