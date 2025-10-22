@@ -47,6 +47,7 @@ interface CollectionEntry {
   screenshot: string | null;
   createdAt: string;
   paymentMethod?: 'UPI' | 'cash' | 'cheque' | 'neft';
+  userName?: string;
 }
 
 type PaymentMethod = 'UPI' | 'cash' | 'cheque' | 'neft';
@@ -94,6 +95,7 @@ export default function Collection() {
       ]);
 
       if (userId && password) {
+        console.log('User credentials initialized:', userId);
         setUserCredentials({ userId, password });
         return true;
       } else {
@@ -258,7 +260,40 @@ export default function Collection() {
     }
   };
 
-  // Fetch collections
+  // Helper function to normalize user ID for comparison
+  const normalizeUserId = (userId: string | undefined | null): string => {
+    if (!userId) return '';
+    return userId.toString().toLowerCase().trim();
+  };
+
+  // Helper function to check if collection belongs to user
+  const isUserCollection = (collection: any, currentUserId: string): boolean => {
+    const normalizedCurrentUserId = normalizeUserId(currentUserId);
+    
+    // Check all possible user ID fields
+    const possibleUserIds = [
+      collection.user_id,
+      collection.userId,
+      collection.user,
+      collection.user_email,
+      collection.userEmail,
+      collection.created_by,
+      collection.createdBy,
+    ];
+    
+    for (const possibleId of possibleUserIds) {
+      if (possibleId) {
+        const normalizedPossibleId = normalizeUserId(possibleId);
+        if (normalizedPossibleId === normalizedCurrentUserId) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  };
+
+  // Fetch collections - FIXED with better user matching
   const fetchCollections = async () => {
     try {
       setIsLoadingCollections(true);
@@ -267,97 +302,230 @@ export default function Collection() {
         await fetchCustomers();
       }
       
-      const response = await makeAPICall('/collections');
+      // First, try to fetch from API
+      let apiCollections: CollectionEntry[] = [];
+      let apiSuccess = false;
       
-      if (response && response.data && Array.isArray(response.data)) {
-        const collectionsWithPaymentMethods: CollectionEntry[] = [];
+      try {
+        console.log('Fetching collections from API...');
+        const response = await makeAPICall('/collections');
         
-        for (let index = 0; index < response.data.length; index++) {
-          const collection = response.data[index];
-          let screenshotUrl = collection.payment_screenshot || collection.screenshot || collection.screenshot_url;
+        if (response && response.data && Array.isArray(response.data)) {
+          console.log(`API returned ${response.data.length} total collections`);
           
-          if (screenshotUrl && !screenshotUrl.startsWith('http') && !screenshotUrl.startsWith('data:') && !screenshotUrl.startsWith('file:')) {
-            if (screenshotUrl.startsWith('/')) {
-              screenshotUrl = `https://myimc.in${screenshotUrl}`;
-            } else {
-              screenshotUrl = `https://myimc.in/${screenshotUrl}`;
-            }
+          // Debug: Log first collection structure
+          if (response.data.length > 0) {
+            console.log('Sample collection fields:', Object.keys(response.data[0]));
+            console.log('Sample collection data:', JSON.stringify(response.data[0], null, 2));
           }
           
-          const displayNotes = collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
-            ? collection.notes 
-            : 'No notes';
-          
-          let customerPlace = collection.client_place || 
-                             collection.customer_place || 
-                             collection.place || 
-                             collection.location || 
-                             collection.address || 
-                             collection.client_address ||
-                             collection.customer_address ||
-                             '';
-          
-          if (!customerPlace || customerPlace.trim() === '') {
-            const nameToMatch = collection.client_name || collection.customer_name || '';
-            let matchedCustomer = null;
+          // Filter collections by logged-in user
+          const userCollections = response.data.filter((collection: any) => {
+            const matches = isUserCollection(collection, userCredentials?.userId || '');
             
-            if (nameToMatch) {
-              matchedCustomer = customers.find(c => 
-                c.name.toLowerCase() === nameToMatch.toLowerCase()
-              );
-              if (matchedCustomer) {
-                customerPlace = matchedCustomer.place || '';
-              }
+            if (matches) {
+              console.log(`✓ Collection ${collection.id} matches user`);
             }
             
-            if (!matchedCustomer && nameToMatch) {
-              matchedCustomer = customers.find(c => 
-                c.name.toLowerCase().includes(nameToMatch.toLowerCase()) ||
-                nameToMatch.toLowerCase().includes(c.name.toLowerCase())
-              );
-              if (matchedCustomer) {
-                customerPlace = matchedCustomer.place || '';
-              }
-            }
-            
-            if (!matchedCustomer && (collection.customer_id || collection.client_id)) {
-              const idToMatch = (collection.customer_id || collection.client_id)?.toString();
-              matchedCustomer = customers.find(c => c.id === idToMatch);
-              if (matchedCustomer) {
-                customerPlace = matchedCustomer.place || '';
-              }
-            }
-          }
-          
-          const collectionId = collection.id?.toString() || index.toString();
-          
-          let paymentMethod: PaymentMethod = 'UPI';
-          if (collectionId) {
-            const storedPaymentMethod = await getPaymentMethodFromLocalStorage(collectionId);
-            if (storedPaymentMethod) {
-              paymentMethod = storedPaymentMethod;
-            }
-          }
-          
-          collectionsWithPaymentMethods.push({
-            id: collectionId,
-            customerId: collection.customer_id?.toString() || collection.client_id?.toString() || '',
-            customerName: collection.client_name || collection.customer_name || 'Unknown Customer',
-            customerPlace: customerPlace || '',
-            branchId: collection.branch_id?.toString() || '',
-            branchName: collection.branch || collection.branch_name || 'Unknown Branch',
-            amount: collection.amount?.toString() || '0',
-            notes: displayNotes,
-            screenshot: screenshotUrl,
-            createdAt: collection.created_at || collection.createdAt || new Date().toISOString(),
-            paymentMethod: paymentMethod,
+            return matches;
           });
+          
+          console.log(`Filtered ${userCollections.length} collections for user ${userCredentials?.userId}`);
+          
+          // If no matches found, show available user IDs for debugging
+          if (userCollections.length === 0 && response.data.length > 0) {
+            const availableUserIds = new Set<string>();
+            response.data.forEach((c: any) => {
+              if (c.user_id) availableUserIds.add(c.user_id.toString());
+              if (c.userId) availableUserIds.add(c.userId.toString());
+              if (c.user) availableUserIds.add(c.user.toString());
+              if (c.user_email) availableUserIds.add(c.user_email.toString());
+            });
+            console.log('Available user IDs in collections:', Array.from(availableUserIds));
+            console.log('Current user ID:', userCredentials?.userId);
+          }
+          
+          // Process each collection
+          for (let index = 0; index < userCollections.length; index++) {
+            const collection = userCollections[index];
+            
+            // Handle screenshot URL
+            let screenshotUrl = collection.payment_screenshot || collection.screenshot || collection.screenshot_url;
+            
+            if (screenshotUrl && !screenshotUrl.startsWith('http') && !screenshotUrl.startsWith('data:') && !screenshotUrl.startsWith('file:')) {
+              if (screenshotUrl.startsWith('/')) {
+                screenshotUrl = `https://myimc.in${screenshotUrl}`;
+              } else {
+                screenshotUrl = `https://myimc.in/${screenshotUrl}`;
+              }
+            }
+            
+            // Handle notes
+            const displayNotes = collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
+              ? collection.notes 
+              : 'No notes';
+            
+            // Handle customer place
+            let customerPlace = collection.client_place || 
+                               collection.customer_place || 
+                               collection.place || 
+                               collection.location || 
+                               collection.address || 
+                               collection.client_address ||
+                               collection.customer_address ||
+                               '';
+            
+            if (!customerPlace || customerPlace.trim() === '') {
+              const nameToMatch = collection.client_name || collection.customer_name || '';
+              let matchedCustomer = null;
+              
+              if (nameToMatch) {
+                matchedCustomer = customers.find(c => 
+                  c.name.toLowerCase() === nameToMatch.toLowerCase()
+                );
+                if (matchedCustomer) {
+                  customerPlace = matchedCustomer.place || '';
+                }
+              }
+              
+              if (!matchedCustomer && nameToMatch) {
+                matchedCustomer = customers.find(c => 
+                  c.name.toLowerCase().includes(nameToMatch.toLowerCase()) ||
+                  nameToMatch.toLowerCase().includes(c.name.toLowerCase())
+                );
+                if (matchedCustomer) {
+                  customerPlace = matchedCustomer.place || '';
+                }
+              }
+              
+              if (!matchedCustomer && (collection.customer_id || collection.client_id)) {
+                const idToMatch = (collection.customer_id || collection.client_id)?.toString();
+                matchedCustomer = customers.find(c => c.id === idToMatch);
+                if (matchedCustomer) {
+                  customerPlace = matchedCustomer.place || '';
+                }
+              }
+            }
+            
+            const collectionId = collection.id?.toString() || index.toString();
+            
+            // Get payment method from local storage or API
+            let paymentMethod: PaymentMethod = 'UPI';
+            if (collectionId) {
+              const storedPaymentMethod = await getPaymentMethodFromLocalStorage(collectionId);
+              if (storedPaymentMethod) {
+                paymentMethod = storedPaymentMethod;
+              } else if (collection.payment_method || collection.paymentMethod) {
+                const apiPaymentMethod = (collection.payment_method || collection.paymentMethod).toLowerCase();
+                if (['upi', 'cash', 'cheque', 'neft'].includes(apiPaymentMethod)) {
+                  paymentMethod = apiPaymentMethod as PaymentMethod;
+                }
+              }
+            }
+            
+            // Extract user name from API response
+            const userName = collection.user_name || collection.userName || collection.user || 'Unknown User';
+            
+            apiCollections.push({
+              id: collectionId,
+              customerId: collection.customer_id?.toString() || collection.client_id?.toString() || '',
+              customerName: collection.client_name || collection.customer_name || 'Unknown Customer',
+              customerPlace: customerPlace || '',
+              branchId: collection.branch_id?.toString() || '',
+              branchName: collection.branch || collection.branch_name || 'Unknown Branch',
+              amount: collection.amount?.toString() || '0',
+              notes: displayNotes,
+              screenshot: screenshotUrl,
+              createdAt: collection.created_at || collection.createdAt || new Date().toISOString(),
+              paymentMethod: paymentMethod,
+              userName: userName,
+            });
+          }
+          
+          apiSuccess = true;
+        }
+      } catch (apiError) {
+        console.error('Error fetching from API:', apiError);
+      }
+      
+      // Load cached collections
+      let cachedCollections: CollectionEntry[] = [];
+      try {
+        if (userCredentials?.userId) {
+          const storageKey = `collections_${userCredentials.userId}`;
+          const storedCollections = await AsyncStorage.getItem(storageKey);
+          
+          if (storedCollections) {
+            cachedCollections = JSON.parse(storedCollections);
+            console.log(`Loaded ${cachedCollections.length} cached collections`);
+          }
+        }
+      } catch (cacheError) {
+        console.error('Error loading cached collections:', cacheError);
+      }
+      
+      // Merge API and cached collections, removing duplicates
+      let mergedCollections: CollectionEntry[] = [];
+      
+      if (apiSuccess && apiCollections.length > 0) {
+        // If API was successful, use API collections as primary source
+        mergedCollections = apiCollections;
+        console.log(`Using ${apiCollections.length} collections from API`);
+        
+        // Add any cached collections that don't exist in API response
+        const apiIds = new Set(apiCollections.map(c => c.id));
+        const uniqueCachedCollections = cachedCollections.filter(c => !apiIds.has(c.id));
+        
+        if (uniqueCachedCollections.length > 0) {
+          console.log(`Adding ${uniqueCachedCollections.length} unique cached collections`);
+          mergedCollections = [...mergedCollections, ...uniqueCachedCollections];
         }
         
-        setCollections(collectionsWithPaymentMethods);
+        // Save merged collections to cache
+        if (userCredentials?.userId) {
+          const storageKey = `collections_${userCredentials.userId}`;
+          await AsyncStorage.setItem(storageKey, JSON.stringify(mergedCollections));
+        }
+      } else {
+        // If API failed or returned no results, use cached collections
+        console.log(`Using ${cachedCollections.length} cached collections only`);
+        mergedCollections = cachedCollections;
       }
+      
+      // Fix customer places for all collections
+      const fixedCollections = mergedCollections.map((collection) => {
+        let customerPlace = collection.customerPlace;
+        if (!customerPlace || customerPlace.trim() === '') {
+          const customerData = customers.find(c => c.id === collection.customerId || c.name === collection.customerName);
+          if (customerData && customerData.place) {
+            customerPlace = customerData.place;
+          }
+        }
+        
+        return {
+          ...collection,
+          customerPlace: customerPlace || '',
+          notes: collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
+            ? collection.notes 
+            : 'No notes',
+          paymentMethod: collection.paymentMethod || 'UPI',
+          userName: collection.userName || 'Unknown User',
+        };
+      });
+      
+      // Sort by creation date (newest first)
+      fixedCollections.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+        return dateB - dateA;
+      });
+      
+      console.log(`Setting ${fixedCollections.length} total collections`);
+      setCollections(fixedCollections);
+      
     } catch (error) {
-      console.error('Error fetching collections:', error);
+      console.error('Error in fetchCollections:', error);
+      // Try to load from cache as fallback
       await loadCachedCollections();
     } finally {
       setIsLoadingCollections(false);
@@ -394,10 +562,12 @@ export default function Collection() {
               : 'No notes',
             screenshot: collection.screenshot,
             paymentMethod: collection.paymentMethod || 'UPI',
+            userName: collection.userName || 'Unknown User',
           };
         });
         
         setCollections(fixedCollections);
+        console.log(`Loaded ${fixedCollections.length} collections from cache`);
       }
     } catch (error) {
       console.error('Error loading cached collections:', error);
@@ -461,6 +631,15 @@ export default function Collection() {
     }
   }, [userCredentials, isInitializing]);
 
+  // Format date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
   // Render thumbnail image
   const renderThumbnailImage = (item: CollectionEntry) => {
     const imageUrl = item.screenshot;
@@ -514,7 +693,7 @@ export default function Collection() {
         case 'cheque':
           return { color: '#efeef6ff', bgColor: '#b74ed4ff', label: 'Cheque' };
         case 'neft':
-          return { color: '#201c24ff', bgColor: '#df1537ff', label: 'NEFT' };
+          return { color: '#2f0615ff', bgColor: '#fc6780ff', label: 'NEFT' };
         default:
           return { color: '#666', bgColor: '#F3F4F6', label: 'Payment' };
       }
@@ -525,14 +704,6 @@ export default function Collection() {
     return (
       <View style={[styles.collectionCard, { backgroundColor: cardColor }]}>
         <View style={styles.cardTopSection}>
-          <TouchableOpacity 
-            style={styles.editButton}
-            onPress={() => handleEditCollection(item)}
-          >
-            <Ionicons name="create-outline" size={10} color="#dde0ecff" />
-            <Text style={styles.editButtonText}>Edit</Text>
-          </TouchableOpacity>
-          
           <View style={[styles.paymentMethodTag, { backgroundColor: paymentConfig.bgColor }]}>
             <Text style={[styles.paymentMethodText, { color: paymentConfig.color }]}>
               {paymentConfig.label}
@@ -541,18 +712,21 @@ export default function Collection() {
         </View>
 
         <View style={styles.cardContent}>
-          <TouchableOpacity 
-            style={styles.screenshotContainer}
-            onPress={() => {
-              if (item.screenshot && !imageErrors.has(item.screenshot)) {
-                setSelectedImage(item.screenshot);
-                setShowImageModal(true);
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            {renderThumbnailImage(item)}
-          </TouchableOpacity>
+          <View style={styles.screenshotSection}>
+            <TouchableOpacity 
+              style={styles.screenshotContainer}
+              onPress={() => {
+                if (item.screenshot && !imageErrors.has(item.screenshot)) {
+                  setSelectedImage(item.screenshot);
+                  setShowImageModal(true);
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              {renderThumbnailImage(item)}
+            </TouchableOpacity>
+            <Text style={styles.dateText}>{formatDate(item.createdAt)}</Text>
+          </View>
 
           <View style={styles.detailsContainer}>
             <Text style={styles.customerName} numberOfLines={1}>
@@ -580,6 +754,13 @@ export default function Collection() {
                 ₹{parseFloat(item.amount).toLocaleString('en-IN')}
               </Text>
             </View>
+
+            <TouchableOpacity 
+              style={styles.editButton}
+              onPress={() => handleEditCollection(item)}
+            >
+              <Ionicons name="create-outline" size={18} color="#ffffff" />
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -671,7 +852,7 @@ export default function Collection() {
               <Ionicons name="close" size={24} color="#ffffff" />
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -743,23 +924,9 @@ const styles = StyleSheet.create({
   },
   cardTopSection: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#091e61ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  editButtonText: {
-    color: '#dcdfebff',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 4,
+    marginBottom: 0,
   },
   paymentMethodTag: {
     paddingHorizontal: 12,
@@ -772,13 +939,24 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flexDirection: 'row',
+    height: 120,
+    marginTop: -6,
   },
-  screenshotContainer: {
-    width: 100,
-    height: 100,
+  screenshotSection: {
+    marginRight: 16,
+    width: 120,
+    height: 280,
     borderRadius: 8,
     overflow: 'hidden',
-    marginRight: 16,
+    marginTop: -19,
+  },
+  screenshotContainer: {
+    width: 140,
+    height: 151,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: -4,
+    marginTop: -24,
   },
   thumbnailImage: {
     width: '100%',
@@ -798,9 +976,32 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
+  dateText: {
+    fontSize: 12,
+    color: '#ffffffff',
+    marginTop: 7,
+    textAlign: 'center',
+    backgroundColor:'#38368aff',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#d4d7e9ff',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
   detailsContainer: {
     flex: 1,
     justifyContent: 'space-between',
+    position: 'relative',
+    height: 120,
   },
   customerName: {
     fontSize: 17,
@@ -832,6 +1033,25 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#059669',
+  },
+  editButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   emptyContainer: {
     flex: 1,

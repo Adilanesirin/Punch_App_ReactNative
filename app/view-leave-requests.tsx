@@ -73,7 +73,7 @@ const ViewLeaveRequests = () => {
             [
               {
                 text: 'OK',
-                onPress: () => router.replace('/login') // Navigate to login instead of back
+                onPress: () => router.replace('/login')
               }
             ]
           );
@@ -87,7 +87,7 @@ const ViewLeaveRequests = () => {
           [
             {
               text: 'OK',
-              onPress: () => router.replace('/login') // Navigate to login instead of back
+              onPress: () => router.replace('/login')
             }
           ]
         );
@@ -380,25 +380,59 @@ const ViewLeaveRequests = () => {
     setLoadingTab(null);
   };
 
-  // Format date for display
+  // Fixed format date for display - matching the web version DD-MM-YYYY
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     
     try {
-      const date = new Date(dateString);
-      // Check if date is valid
-      if (isNaN(date.getTime())) {
-        return 'Invalid Date';
+      let date;
+      
+      // Handle different date formats
+      if (dateString.includes('-')) {
+        // Format: YYYY-MM-DD or DD-MM-YYYY
+        const parts = dateString.split('-');
+        
+        if (parts[0].length === 4) {
+          // YYYY-MM-DD format
+          date = new Date(dateString);
+        } else {
+          // DD-MM-YYYY format
+          const [day, month, year] = parts;
+          date = new Date(`${year}-${month}-${day}`);
+        }
+      } else if (dateString.includes('/')) {
+        // Format: DD/MM/YYYY or YYYY/MM/DD
+        const parts = dateString.split('/');
+        
+        if (parts[0].length === 4) {
+          // YYYY/MM/DD format
+          date = new Date(dateString.replace(/\//g, '-'));
+        } else {
+          // DD/MM/YYYY format
+          const [day, month, year] = parts;
+          date = new Date(`${year}-${month}-${day}`);
+        }
+      } else {
+        // Try direct parsing
+        date = new Date(dateString);
       }
       
-      return date.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      });
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date:', dateString);
+        return dateString; // Return original if can't parse
+      }
+      
+      // Format as DD/MM/YYYY to match web version
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      
+      return `${day}/${month}/${year}`;
+      
     } catch (error) {
-      console.error('Error formatting date:', error);
-      return 'N/A';
+      console.error('Error formatting date:', error, 'for dateString:', dateString);
+      return dateString; // Return original string if error
     }
   };
 
@@ -594,8 +628,6 @@ const ViewLeaveRequests = () => {
           </View>
         )}
       </ScrollView>
-
-      
     </View>
   );
 };
@@ -826,6 +858,4 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(254, 202, 202, 0.3)',
   },
-  
- 
 });

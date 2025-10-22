@@ -54,7 +54,7 @@ export default function Home() {
   const [loadingTab, setLoadingTab] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
 
-  // Grid items configuration - Added 4 more items
+  // Grid items configuration
   const gridItems: GridItem[] = [
     {
       id: '1',
@@ -116,21 +116,18 @@ export default function Home() {
     
     const cleanUrl = imageUrl.trim();
     
-    // If it's already a complete URL, use it
     if (cleanUrl.startsWith('http')) {
       return cleanUrl;
     }
     
-    // If it's a relative path, make it absolute
     if (cleanUrl.startsWith('/')) {
       return `https://myimc.in${cleanUrl}`;
     }
     
-    // Otherwise, assume it needs the base URL
     return `https://myimc.in/${cleanUrl}`;
   };
 
-  // Function to handle profile image loading - Simplified without file caching
+  // Function to handle profile image loading
   const handleProfileImageLoading = async (userProfile: UserProfile) => {
     if (!userCredentials?.userId) return;
 
@@ -168,7 +165,6 @@ export default function Home() {
         const data = await response.json();
         console.log('API Response received, users count:', data.length);
         
-        // Find the current user's profile
         const currentUserProfile = data.find((user: UserProfile) => 
           user.userid === userCredentials.userId
         );
@@ -183,10 +179,8 @@ export default function Home() {
           setUserProfile(currentUserProfile);
           setUsername(currentUserProfile.name);
           
-          // Handle profile image loading with caching
           await handleProfileImageLoading(currentUserProfile);
           
-          // Store the profile data locally for offline access
           const profileKey = getUserSpecificKey('user_profile');
           await AsyncStorage.setItem(profileKey, JSON.stringify(currentUserProfile));
         } else {
@@ -217,7 +211,6 @@ export default function Home() {
         setUserProfile(parsedProfile);
         setUsername(parsedProfile.name);
         
-        // Try to load cached image
         await loadCachedImage(userCredentials.userId);
       }
     } catch (error) {
@@ -235,14 +228,12 @@ export default function Home() {
       ]);
       console.log(userId, password, storedUsername)
       if (userId && password) {
-        // User has valid credentials
         setUserCredentials({ userId, password });
         if (storedUsername) {
           setUsername(storedUsername);
         }
         return true;
       } else {
-        // No credentials found, redirect to login
         console.log('No credentials found, redirecting to login');
         router.replace('/login');
         return false;
@@ -254,10 +245,9 @@ export default function Home() {
     }
   };
 
-  // Function to clear cached image - Simplified
+  // Function to clear cached image
   const clearCachedImage = async (userId: string) => {
     try {
-      // Just clear image metadata since we're not using file caching
       const imageMetadataKey = `profile_image_metadata_${userId}`;
       await AsyncStorage.removeItem(imageMetadataKey);
       console.log('Cached image metadata cleared');
@@ -268,11 +258,9 @@ export default function Home() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // Reset image state on refresh
     setImageLoadError(false);
     setProfileImageUri(null);
     
-    // Clear cached image metadata to force refresh
     if (userCredentials?.userId) {
       await clearCachedImage(userCredentials.userId);
     }
@@ -295,25 +283,21 @@ export default function Home() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Clear cached image
               if (userCredentials?.userId) {
                 await clearCachedImage(userCredentials.userId);
               }
               
-              // Clear ALL stored credentials and data
               await Promise.all([
                 SecureStore.deleteItemAsync('userId'),
                 SecureStore.deleteItemAsync('password'),
                 SecureStore.deleteItemAsync('username')
               ]);
               
-              // Clear user profile data if exists
               if (userCredentials?.userId) {
                 const profileKey = getUserSpecificKey('user_profile');
                 await AsyncStorage.removeItem(profileKey);
               }
               
-              // Clear any other user-specific stored data
               try {
                 await AsyncStorage.multiRemove([
                   'user_profile',
@@ -324,7 +308,6 @@ export default function Home() {
                 console.log('Some cached data could not be cleared:', clearError);
               }
               
-              // Reset all state variables
               setUserCredentials(null);
               setUsername('User');
               setUserProfile(null);
@@ -333,7 +316,6 @@ export default function Home() {
               setProfileImageUri(null);
               setIsImageLoading(false);
               
-              // Navigate to login screen
               router.replace('/login');
               
             } catch (logoutError) {
@@ -356,7 +338,6 @@ export default function Home() {
   };
 
   const renderProfileImage = (size: number, containerStyle?: any) => {
-    // Show loading indicator if image is being downloaded
     if (isImageLoading) {
       return (
         <View style={[{
@@ -374,7 +355,6 @@ export default function Home() {
       );
     }
 
-    // Always show fallback if no URI or error occurred
     if (!profileImageUri || imageLoadError) {
       return (
         <View style={[{
@@ -419,7 +399,7 @@ export default function Home() {
     );
   };
 
-  // Render grid item with smaller size
+  // Render grid item
   const renderGridItem = (item: GridItem) => (
     <TouchableOpacity
       key={item.id}
@@ -439,7 +419,7 @@ export default function Home() {
     </TouchableOpacity>
   );
 
-  // MAIN INITIALIZATION EFFECT - Only runs once
+  // MAIN INITIALIZATION EFFECT
   useEffect(() => {
     const init = async () => {
       const hasCredentials = await initializeUser();
@@ -447,16 +427,15 @@ export default function Home() {
     };
     
     init();
-  }, []); // Empty dependency array - runs only once
+  }, []);
 
-  // FETCH PROFILE EFFECT - Only when credentials change
+  // FETCH PROFILE EFFECT
   useEffect(() => {
     if (userCredentials?.userId && !isInitializing) {
       fetchUserProfile();
     }
-  }, [userCredentials, isInitializing]); // Only runs when credentials change
+  }, [userCredentials, isInitializing]);
 
-  // Show loading screen during initialization
   if (isInitializing) {
     return (
       <View style={[homeStyles.container, homeStyles.loadingContainer]}>
@@ -466,7 +445,6 @@ export default function Home() {
     );
   }
 
-  // If no credentials after initialization, show nothing (will redirect to login)
   if (!userCredentials) {
     return (
       <View style={[homeStyles.container, homeStyles.loadingContainer]}>
@@ -509,7 +487,7 @@ export default function Home() {
             <Text style={homeStyles.welcomeName}>{username}</Text>
           </View>
 
-          {/* Grid Container with 2x2 layout */}
+          {/* Grid Container */}
           <View style={homeStyles.gridContainer}>
             <View style={homeStyles.gridRow}>
               {gridItems.slice(0, 2).map(renderGridItem)}
@@ -520,6 +498,12 @@ export default function Home() {
             <View style={homeStyles.gridRow}>
               {gridItems.slice(4, 6).map(renderGridItem)}
             </View>
+          </View>
+
+          {/* Footer */}
+          <View style={homeStyles.footer}>
+            <Text style={homeStyles.footerText}>Powered by IMC Business Solutions</Text>
+            <Text style={homeStyles.footerVersion}>v2</Text>
           </View>
         </ScrollView>
 
@@ -581,7 +565,7 @@ const homeStyles = StyleSheet.create({
   profileIconButton: { padding: 5 },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 12, // Reduced horizontal padding
+    paddingHorizontal: 12,
     paddingTop: 20,
     paddingBottom: 30,
   },
@@ -589,24 +573,24 @@ const homeStyles = StyleSheet.create({
   // Welcome Section Styles
   welcomeSection: {
     alignItems: 'center',
-    marginBottom: 20, // Reduced margin
+    marginBottom: 20,
     paddingVertical: 10,
   },
   welcomeTitle: {
-    fontSize: 20, // Reduced font size
+    fontSize: 20,
     color: '#ffffff',
     fontWeight: '300',
     textAlign: 'center',
   },
   welcomeName: {
-    fontSize: 22, // Reduced font size
+    fontSize: 22,
     color: '#00ddff',
     fontWeight: 'bold',
     textAlign: 'center',
-    marginVertical: 4, // Reduced margin
+    marginVertical: 4,
   },
 
-  // Grid Styles - Reduced breadth (width) of cards
+  // Grid Styles
   gridContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -615,12 +599,12 @@ const homeStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    marginBottom: 8, // Reduced margin
+    marginBottom: 8,
   },
   gridItem: {
-    width: '48%', // Reduced width percentage
-    height: 150, // Slightly reduced height
-    borderRadius: 14, // Slightly smaller border radius
+    width: '48%',
+    height: 150,
+    borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: 'rgba(13, 193, 233, 0.93)',
     borderWidth: 1.5,
@@ -638,35 +622,57 @@ const homeStyles = StyleSheet.create({
     flex: 1,
   },
   gridItemContent: {
-    paddingVertical: 12, // Reduced padding
-    paddingHorizontal: 8, // Reduced padding
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
   },
   gridIconContainer: {
-    width: 45, // Reduced size
-    height: 45, // Reduced size
+    width: 45,
+    height: 45,
     borderRadius: 22.5,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6, // Reduced margin
+    marginBottom: 6,
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   gridItemTitle: {
-    fontSize: 13, // Reduced font size
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#1a1a2e',
-    marginBottom: 3, // Reduced margin
+    marginBottom: 3,
     textAlign: 'center',
   },
   gridItemDescription: {
-    fontSize: 10, // Reduced font size
+    fontSize: 10,
     color: '#6b7280',
     textAlign: 'center',
-    lineHeight: 12, // Reduced line height
+    lineHeight: 12,
+  },
+
+  // Footer Styles
+  footer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingTop: 30,
+    marginTop: 10,
+  },
+  footerText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    fontWeight: '400',
+  },
+  footerVersion: {
+    fontSize: 17,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    marginTop: 4,
+    fontWeight: '300',
   },
 
   // Modal Styles

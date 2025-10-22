@@ -13,6 +13,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -24,6 +25,7 @@ interface LeaveRequestData {
   end_date: string;
   leave_type: string;
   reason: string;
+  note: string;
 }
 
 interface UserCredentials {
@@ -40,6 +42,7 @@ const LeaveRequest = () => {
   const [endDate, setEndDate] = useState(new Date());
   const [leaveType, setLeaveType] = useState('full_day');
   const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
   
   // UI state
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
@@ -270,7 +273,7 @@ const LeaveRequest = () => {
     return true;
   };
 
-  // Updated API call with dynamic user credentials
+  // Updated API call with dynamic user credentials and note field
   const submitLeaveRequest = async () => {
     if (!validateForm()) return;
     
@@ -280,12 +283,13 @@ const LeaveRequest = () => {
     const selectedReason = reasonOptions.find(option => option.value === reason);
     
     const requestData: LeaveRequestData = {
-      userid: userCredentials.userid, // Now uses actual user credentials
-      password: userCredentials.password, // Now uses actual user credentials
+      userid: userCredentials.userid,
+      password: userCredentials.password,
       start_date: formatDate(startDate),
       end_date: formatDate(endDate),
       leave_type: leaveType,
       reason: selectedReason?.label || reason,
+      note: note.trim(),
     };
 
     // Create timeout promise
@@ -295,7 +299,7 @@ const LeaveRequest = () => {
 
     try {
       console.log('Submitting leave request for user:', userCredentials.userid);
-      console.log('Request data:', { ...requestData, password: '[HIDDEN]' }); // Hide password in logs
+      console.log('Request data:', { ...requestData, password: '[HIDDEN]' });
       
       const fetchPromise = fetch(`${API_CONFIG.baseUrl}/flutter/leave/create/`, {
         method: 'POST',
@@ -336,6 +340,7 @@ const LeaveRequest = () => {
               setEndDate(new Date());
               setLeaveType('full_day');
               setReason('');
+              setNote('');
               router.back();
             }
           }]
@@ -402,6 +407,7 @@ const LeaveRequest = () => {
           setEndDate(new Date());
           setLeaveType('full_day');
           setReason('');
+          setNote('');
           router.back();
         }
       }]
@@ -410,6 +416,7 @@ const LeaveRequest = () => {
 
   const handleClose = () => {
     const hasChanges = reason !== '' || 
+                      note !== '' ||
                       startDate.toDateString() !== new Date().toDateString() ||
                       endDate.toDateString() !== new Date().toDateString() ||
                       leaveType !== 'full_day';
@@ -540,11 +547,30 @@ const LeaveRequest = () => {
             </TouchableOpacity>
           </View>
 
+          {/* Note Field */}
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Additional Note</Text>
+            <TextInput
+              style={styles.textAreaInput}
+              multiline
+              numberOfLines={4}
+              placeholder="Add any additional information about your leave request..."
+              placeholderTextColor="#999"
+              value={note}
+              onChangeText={setNote}
+              maxLength={500}
+              textAlignVertical="top"
+            />
+            <Text style={styles.characterCount}>
+              {note.length}/500 characters
+            </Text>
+          </View>
+
           {/* Action Buttons */}
           <View style={styles.actionContainer}>
             <TouchableOpacity
               style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-              onPress={submitLeaveRequest} // Using real API - change to submitLeaveRequestMock for testing
+              onPress={submitLeaveRequest}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
@@ -785,6 +811,23 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     color: '#999',
+  },
+  textAreaInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    minHeight: 100,
+  },
+  characterCount: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'right',
+    marginTop: 5,
   },
   infoContainer: {
     flexDirection: 'row',

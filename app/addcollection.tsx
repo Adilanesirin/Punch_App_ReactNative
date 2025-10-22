@@ -6,21 +6,21 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    FlatList,
-    Image,
-    Keyboard,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 interface UserCredentials {
@@ -80,7 +80,6 @@ export default function AddCollection() {
   const router = useRouter();
   const params = useLocalSearchParams();
   
-  // Get edit data if coming from edit action
   const editData = params.editData ? JSON.parse(params.editData as string) as CollectionEntry : null;
 
   const [showSuccessCard, setShowSuccessCard] = useState(false);
@@ -89,24 +88,19 @@ export default function AddCollection() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isInitializing, setIsInitializing] = useState(true);
   
-  // Data states
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [branches, setBranches] = useState<Branch[]>(HARDCODED_BRANCHES);
   
-  // Dropdown states
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   
-  // Search states
   const [customerSearchText, setCustomerSearchText] = useState('');
   const [branchSearchText, setBranchSearchText] = useState('');
 
-  // Manual customer entry states
   const [isManualCustomerMode, setIsManualCustomerMode] = useState(false);
   const [manualCustomerName, setManualCustomerName] = useState('');
   const [manualCustomerPlace, setManualCustomerPlace] = useState('');
 
-  // Form states - Initialize with edit data if available
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(editData?.customerId || '');
   const [selectedCustomerPlace, setSelectedCustomerPlace] = useState<string>(editData?.customerPlace || '');
   const [selectedBranchId, setSelectedBranchId] = useState<string>(editData?.branchId || '');
@@ -116,7 +110,6 @@ export default function AddCollection() {
   const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editData?.paymentMethod || 'UPI');
 
-  // Keyboard event listeners
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       'keyboardDidShow',
@@ -137,14 +130,19 @@ export default function AddCollection() {
     };
   }, []);
 
-  // Memoized filtered data
   const filteredCustomers = useMemo(() => {
-    if (!customerSearchText.trim()) return customers;
+    let filtered = customers;
     
-    return customers.filter(customer =>
-      customer.name.toLowerCase().includes(customerSearchText.toLowerCase()) ||
-      (customer.place && customer.place.toLowerCase().includes(customerSearchText.toLowerCase()))
-    );
+    // Apply search filter
+    if (customerSearchText.trim()) {
+      filtered = customers.filter(customer =>
+        customer.name.toLowerCase().includes(customerSearchText.toLowerCase()) ||
+        (customer.place && customer.place.toLowerCase().includes(customerSearchText.toLowerCase()))
+      );
+    }
+    
+    // Sort alphabetically by name
+    return filtered.sort((a, b) => a.name.localeCompare(b.name));
   }, [customers, customerSearchText]);
 
   const filteredBranches = useMemo(() => {
@@ -156,7 +154,6 @@ export default function AddCollection() {
     );
   }, [branches, branchSearchText]);
 
-  // Memoized selected customer and branch
   const selectedCustomer = useMemo(() => 
     customers.find(c => c.id === selectedCustomerId), 
     [customers, selectedCustomerId]
@@ -167,7 +164,6 @@ export default function AddCollection() {
     [branches, selectedBranchId]
   );
 
-  // Initialize user credentials
   const initializeUser = async () => {
     try {
       const [userId, password] = await Promise.all([
@@ -189,7 +185,6 @@ export default function AddCollection() {
     }
   };
 
-  // API call helper - EXACT SAME AS ORIGINAL
   const makeAPICall = async (endpoint: string, method: string = 'GET', body: any = null, isFormData: boolean = false) => {
     try {
       if (!userCredentials) {
@@ -248,7 +243,6 @@ export default function AddCollection() {
     }
   };
 
-  // Load manual customers from storage - EXACT SAME AS ORIGINAL
   const loadManualCustomers = async () => {
     try {
       if (!userCredentials?.userId) return [];
@@ -266,7 +260,6 @@ export default function AddCollection() {
     }
   };
 
-  // Fetch customers - EXACT SAME AS ORIGINAL
   const fetchCustomers = async () => {
     try {
       console.log('=== FETCHING CUSTOMERS ===');
@@ -284,7 +277,6 @@ export default function AddCollection() {
         
         console.log('Formatted customers count:', formattedCustomers.length);
         
-        // Load manual customers and merge
         const manualCustomers = await loadManualCustomers();
         const allCustomers = [...formattedCustomers, ...manualCustomers];
         
@@ -306,7 +298,6 @@ export default function AddCollection() {
     await loadCustomersFromCache();
   };
 
-  // Load customers from cache - EXACT SAME AS ORIGINAL
   const loadCustomersFromCache = async () => {
     try {
       const cachedCustomers = await AsyncStorage.getItem('cached_customers');
@@ -336,13 +327,11 @@ export default function AddCollection() {
     await AsyncStorage.setItem('cached_customers', JSON.stringify(mockCustomers));
   };
 
-  // Initialize branches - EXACT SAME AS ORIGINAL
   const initializeBranches = async () => {
     setBranches(HARDCODED_BRANCHES);
     await AsyncStorage.setItem('cached_branches', JSON.stringify(HARDCODED_BRANCHES));
   };
 
-  // Add manual customer - EXACT SAME AS ORIGINAL
   const handleAddManualCustomer = async () => {
     if (!manualCustomerName.trim()) {
       Alert.alert('Validation Error', 'Please enter customer name.');
@@ -350,7 +339,6 @@ export default function AddCollection() {
     }
 
     try {
-      // Generate unique ID for manual customer
       const manualId = `MANUAL_${Date.now()}`;
       
       const newCustomer: Customer = {
@@ -360,21 +348,16 @@ export default function AddCollection() {
         isManual: true,
       };
 
-      // Get existing manual customers
       const manualCustomers = await loadManualCustomers();
       const updatedManualCustomers = [...manualCustomers, newCustomer];
       
-      // Save to storage
       await saveManualCustomers(updatedManualCustomers);
 
-      // Update customers list
       setCustomers(prev => [...prev, newCustomer]);
 
-      // Select the newly added customer
       setSelectedCustomerId(manualId);
       setSelectedCustomerPlace(manualCustomerPlace.trim());
 
-      // Reset manual entry mode
       setIsManualCustomerMode(false);
       setManualCustomerName('');
       setManualCustomerPlace('');
@@ -387,7 +370,6 @@ export default function AddCollection() {
     }
   };
 
-  // Save manual customers to storage - EXACT SAME AS ORIGINAL
   const saveManualCustomers = async (manualCustomers: Customer[]) => {
     try {
       if (!userCredentials?.userId) return;
@@ -399,7 +381,6 @@ export default function AddCollection() {
     }
   };
 
-  // Toggle manual customer mode - EXACT SAME AS ORIGINAL
   const toggleManualCustomerMode = () => {
     setIsManualCustomerMode(!isManualCustomerMode);
     setManualCustomerName('');
@@ -407,7 +388,6 @@ export default function AddCollection() {
     setCustomerSearchText('');
   };
 
-  // Format image URL - EXACT SAME AS ORIGINAL
   const formatImageUrl = (imageUrl: string | null): string | null => {
     if (!imageUrl) return null;
     
@@ -422,7 +402,6 @@ export default function AddCollection() {
     return `https://myimc.in/${imageUrl}`;
   };
 
-  // Save payment method to local storage - EXACT SAME AS ORIGINAL
   const savePaymentMethodToLocalStorage = async (collectionId: string, paymentMethod: PaymentMethod) => {
     try {
       if (!userCredentials?.userId) return;
@@ -436,7 +415,6 @@ export default function AddCollection() {
       await AsyncStorage.setItem(storageKey, JSON.stringify(paymentMethods));
       console.log('✅ SUCCESS: Saved payment method to local storage:', { collectionId, paymentMethod });
       
-      // Verify it was saved
       const verify = await AsyncStorage.getItem(storageKey);
       console.log('✅ Verification - Current payment methods in storage:', verify);
     } catch (error) {
@@ -444,7 +422,6 @@ export default function AddCollection() {
     }
   };
 
-  // Handle image picker (for GPay and Cash screenshots) - EXACT SAME AS ORIGINAL
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -478,7 +455,6 @@ export default function AddCollection() {
     }
   };
 
-  // Handle camera (for Check photo) - EXACT SAME AS ORIGINAL
   const takePhoto = async () => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -511,7 +487,6 @@ export default function AddCollection() {
     }
   };
 
-  // Reset form - EXACT SAME AS ORIGINAL
   const resetForm = useCallback(() => {
     setSelectedCustomerId('');
     setSelectedCustomerPlace('');
@@ -530,7 +505,6 @@ export default function AddCollection() {
     setManualCustomerPlace('');
   }, []);
 
-  // Customer selection handler - EXACT SAME AS ORIGINAL
   const handleCustomerSelect = useCallback((customerId: string) => {
     const selectedCustomerData = customers.find(c => c.id === customerId);
     
@@ -540,21 +514,22 @@ export default function AddCollection() {
     setCustomerSearchText('');
   }, [customers]);
 
-  // Branch selection handler - EXACT SAME AS ORIGINAL
   const handleBranchSelect = useCallback((branchId: string) => {
     setSelectedBranchId(branchId);
     setShowBranchDropdown(false);
     setBranchSearchText('');
   }, []);
 
-  // Payment method change handler - EXACT SAME AS ORIGINAL
   const handlePaymentMethodChange = useCallback((method: PaymentMethod) => {
     setPaymentMethod(method);
+    // Clear screenshot when switching to cash
+    if (method === 'cash') {
+      setScreenshot(null);
+      setScreenshotBase64(null);
+    }
   }, []);
 
-  // Handle form submission - EXACT SAME AS ORIGINAL
   const handleSubmit = async () => {
-    // Determine customer name and place
     let customerName = '';
     let customerPlace = '';
 
@@ -588,7 +563,8 @@ export default function AddCollection() {
       return;
     }
     
-    if (!screenshot || !screenshotBase64) {
+    // Only require screenshot for non-cash payments
+    if (paymentMethod !== 'cash' && (!screenshot || !screenshotBase64)) {
       Alert.alert('Validation Error', 'Please add a payment screenshot/photo.');
       return;
     }
@@ -602,7 +578,12 @@ export default function AddCollection() {
       }
 
       const formData = new FormData();
-      
+
+      if (userCredentials?.userId) {
+        formData.append('user_id', userCredentials.userId);
+        formData.append('created_by', userCredentials.userId);
+      }
+            
       formData.append('client_name', customerName);
       formData.append('client_place', customerPlace);
       formData.append('branch', selectedBranch.name);
@@ -618,7 +599,8 @@ export default function AddCollection() {
       
       console.log('🚀 Submitting with payment method:', paymentMethod);
       
-      if (screenshot && screenshotBase64) {
+      // Only append screenshot for non-cash payments
+      if (paymentMethod !== 'cash' && screenshot && screenshotBase64) {
         const imageUri = screenshot;
         const filename = imageUri.split('/').pop() || `screenshot_${Date.now()}.jpg`;
         const match = /\.(\w+)$/.exec(filename);
@@ -641,16 +623,13 @@ export default function AddCollection() {
       console.log('📦 Submission response:', response);
       
       if (response && (response.success !== false)) {
-        // Get the collection ID from the response
         let collectionId: string;
         
         if (editData) {
           collectionId = editData.id;
         } else {
-          // For new collections, get the ID from response
           collectionId = response.id?.toString() || response.data?.id?.toString() || Date.now().toString();
           
-          // If we can't get the ID from response, create a temporary one
           if (!response.id && !response.data?.id) {
             collectionId = `temp_${Date.now()}`;
             console.log('⚠️ Using temporary collection ID:', collectionId);
@@ -659,10 +638,8 @@ export default function AddCollection() {
         
         console.log('💾 Saving payment method for collection:', { collectionId, paymentMethod });
         
-        // Save the payment method to local storage immediately
         await savePaymentMethodToLocalStorage(collectionId, paymentMethod);
         
-        // Show success and go back
         resetForm();
         setShowSuccessCard(true);
         setTimeout(() => {
@@ -695,7 +672,6 @@ export default function AddCollection() {
     }
   };
 
-  // Initialize
   useEffect(() => {
     const init = async () => {
       const hasCredentials = await initializeUser();
@@ -708,7 +684,6 @@ export default function AddCollection() {
     init();
   }, []);
 
-  // Customer dropdown item renderer - EXACT SAME AS ORIGINAL
   const renderCustomerItem = useCallback(({ item }: { item: Customer }) => (
     <TouchableOpacity
       style={styles.dropdownItem}
@@ -735,7 +710,6 @@ export default function AddCollection() {
     </TouchableOpacity>
   ), [handleCustomerSelect]);
 
-  // Branch dropdown item renderer - EXACT SAME AS ORIGINAL
   const renderBranchItem = useCallback(({ item }: { item: Branch }) => (
     <TouchableOpacity
       style={styles.dropdownItem}
@@ -748,11 +722,9 @@ export default function AddCollection() {
     </TouchableOpacity>
   ), [handleBranchSelect]);
 
-  // Key extractors - EXACT SAME AS ORIGINAL
   const customerKeyExtractor = useCallback((item: Customer) => item.id, []);
   const branchKeyExtractor = useCallback((item: Branch) => item.id, []);
 
-  // Show loading indicator
   if (isInitializing) {
     return (
       <View style={styles.loadingContainer}>
@@ -850,19 +822,13 @@ export default function AddCollection() {
               value: screenshot,
               onPress: takePhoto,
             }] : 
-            paymentMethod === 'cash' ? [{
-              id: 'cashPhoto',
-              type: 'image',
-              label: 'Cash Payment Screenshot *',
-              value: screenshot,
-              onPress: pickImage,
-            }] : [{
+            paymentMethod === 'neft' ? [{
               id: 'neftScreenshot',
               type: 'image',
               label: 'NEFT Screenshot *',
               value: screenshot,
               onPress: pickImage,
-            }]
+            }] : []
           )}
           keyExtractor={(item) => item.id}
           style={styles.formList}
@@ -931,10 +897,6 @@ export default function AddCollection() {
                       onChangeText={item.onChangeText}
                       keyboardType={item.keyboardType}
                       placeholderTextColor="#5659b5ff"
-                      placeholderborderColor="#e6db11ff"
-                      borderwidth={2}
-                      borderRadius={4}
-                      backgroundColor="#c3d2fd61"
                       editable={item.editable !== false}
                     />
                   </View>
@@ -952,8 +914,6 @@ export default function AddCollection() {
                       numberOfLines={3}
                       placeholderTextColor="#35810fff"
                       textAlignVertical="top"
-                      borderColor="#1baa2cff"
-                      backgroundColor="#e6f4ea"
                     />
                   </View>
                 );
@@ -968,9 +928,7 @@ export default function AddCollection() {
                         <View style={styles.imageButtonContent}>
                           <Ionicons name="images-outline" size={32} color="#254892ff" />
                           <Text style={styles.imageButtonText}>
-                            {paymentMethod === 'cash' 
-                              ? 'Select Cash Payment Screenshot from Gallery' 
-                              : paymentMethod === 'neft'
+                            {paymentMethod === 'neft'
                               ? 'Select NEFT Screenshot from Gallery'
                               : 'Select Screenshot from Gallery'
                             }
@@ -1022,7 +980,6 @@ export default function AddCollection() {
         />
       </KeyboardAvoidingView>
 
-      {/* Customer Selection Modal */}
       <Modal
         visible={showCustomerDropdown}
         animationType="slide"
@@ -1129,7 +1086,6 @@ export default function AddCollection() {
         </SafeAreaView>
       </Modal>
 
-      {/* Branch Selection Modal */}
       <Modal
         visible={showBranchDropdown}
         animationType="slide"
@@ -1183,7 +1139,6 @@ export default function AddCollection() {
         </SafeAreaView>
       </Modal>
 
-      {/* Success Card */}
       {showSuccessCard && (
         <View style={styles.successCard}>
           <View style={styles.successCardContent}>
@@ -1201,7 +1156,6 @@ export default function AddCollection() {
         </View>
       )}
 
-      {/* Centered Loader */}
       {loading && (
         <View style={styles.centeredLoader}>
           <View style={styles.loaderBackground}>
@@ -1214,7 +1168,6 @@ export default function AddCollection() {
   );
 }
 
-// EXACT SAME STYLES AS ORIGINAL
 const styles = StyleSheet.create({
   fullPageModal: {
     flex: 1,
@@ -1326,6 +1279,8 @@ const styles = StyleSheet.create({
   notesInput: {
     minHeight: 80,
     textAlignVertical: 'top',
+    borderColor: '#1baa2cff',
+    backgroundColor: '#e6f4ea',
   },
   placeInput: {
     backgroundColor: '#e6eff8ff',
@@ -1372,7 +1327,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     color: '#333333',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#c3d2fd61',
   },
   imageButton: {
     borderWidth: 2,
@@ -1420,7 +1375,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Manual Customer Entry Styles
   manualCustomerForm: {
     padding: 20,
   },
@@ -1458,7 +1412,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // FULL-SCREEN Customer Dropdown Styles
   fullScreenDropdownModal: {
     flex: 1,
     backgroundColor: '#ffffff',
