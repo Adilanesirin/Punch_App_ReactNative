@@ -17,7 +17,7 @@ import {
   View
 } from "react-native";
 
-import logoImage from "../assets/images/imclogo.png";
+import logoImage from "../assets/images/IMCNEW.png";
 import bgImage from "../assets/images/login_bg.jpg";
 
 export default function LoginScreen() {
@@ -203,8 +203,8 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   logo: {
-    width: 120,
-    height: 120,
+    width:80,
+    height: 70,
     alignSelf: 'center',
     marginBottom: 20,
     resizeMode: 'contain',

@@ -15,13 +15,13 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface UserCredentials {
   userId: string;
@@ -60,21 +60,16 @@ type PaymentMethod = 'UPI' | 'cash' | 'cheque' | 'neft';
 const API_BASE_URL = 'https://myimc.in/app4/api';
 const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 
-const HARDCODED_BRANCHES: Branch[] = [
-  { id: '1', name: 'IMC MUKKAM' },
-  { id: '2', name: 'IMCB HO' },
-  { id: '3', name: 'IMCB DEV' },
-  { id: '4', name: 'Sysmac Info System' },
-  { id: '5', name: 'Sysmac Computers'},
-  { id: '6', name: 'DQ Technologies' },
-];
-
 const PAYMENT_METHODS = [
   { id: 'UPI', label: 'UPI', icon: 'logo-google' },
   { id: 'cash', label: 'Cash', icon: 'cash-outline' },
   { id: 'cheque', label: 'Cheque', icon: 'document-text-outline' },
   { id: 'neft', label: 'NEFT', icon: 'card-outline' },
 ];
+
+const MAX_FETCH_ATTEMPTS = 3;
+const FETCH_TIMEOUT = 15000; // 15 seconds
+const RETRY_DELAY = 2000; // 2 seconds
 
 export default function AddCollection() {
   const router = useRouter();
@@ -89,7 +84,7 @@ export default function AddCollection() {
   const [isInitializing, setIsInitializing] = useState(true);
   
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [branches, setBranches] = useState<Branch[]>(HARDCODED_BRANCHES);
+  const [branches, setBranches] = useState<Branch[]>([]);
   
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
@@ -109,6 +104,12 @@ export default function AddCollection() {
   const [screenshot, setScreenshot] = useState<string | null>(editData?.screenshot || null);
   const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editData?.paymentMethod || 'UPI');
+
+  // New state for retry logic
+  const [branchFetchAttempts, setBranchFetchAttempts] = useState(0);
+  const [customerFetchAttempts, setCustomerFetchAttempts] = useState(0);
+  const [isFetchingBranches, setIsFetchingBranches] = useState(false);
+  const [isFetchingCustomers, setIsFetchingCustomers] = useState(false);
 
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
@@ -133,7 +134,6 @@ export default function AddCollection() {
   const filteredCustomers = useMemo(() => {
     let filtered = customers;
     
-    // Apply search filter
     if (customerSearchText.trim()) {
       filtered = customers.filter(customer =>
         customer.name.toLowerCase().includes(customerSearchText.toLowerCase()) ||
@@ -141,7 +141,6 @@ export default function AddCollection() {
       );
     }
     
-    // Sort alphabetically by name
     return filtered.sort((a, b) => a.name.localeCompare(b.name));
   }, [customers, customerSearchText]);
 
@@ -172,16 +171,19 @@ export default function AddCollection() {
       ]);
 
       if (userId && password) {
-        setUserCredentials({ userId, password });
-        return true;
+        console.log('✅ User credentials loaded:', userId);
+        const credentials = { userId, password };
+        setUserCredentials(credentials);
+        return credentials;
       } else {
+        console.log('❌ No credentials found, redirecting to login');
         router.replace('/login');
-        return false;
+        return null;
       }
     } catch (error) {
-      console.error('Error initializing user:', error);
+      console.error('❌ Error initializing user:', error);
       router.replace('/login');
-      return false;
+      return null;
     }
   };
 
@@ -191,11 +193,16 @@ export default function AddCollection() {
         throw new Error('User credentials not available');
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
       const config: RequestInit = {
         method,
         headers: {
           'Authorization': `Basic ${btoa(`${userCredentials.userId}:${userCredentials.password}`)}`,
         },
+        signal: controller.signal,
+        credentials: 'include', // IMPORTANT: Include cookies
       };
 
       if (body && method !== 'GET') {
@@ -210,35 +217,51 @@ export default function AddCollection() {
         }
       }
 
-      if (endpoint.includes('add') || endpoint.includes('submit')) {
-        console.log(`Making API call to: ${API_BASE_URL}${endpoint}`);
-      }
+      console.log(`📡 Making API call to: ${API_BASE_URL}${endpoint}`);
+      console.log(`📡 Method: ${method}`);
+      console.log(`📡 Auth: ${userCredentials.userId}`);
       
       const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+      clearTimeout(timeoutId);
+      
+      console.log(`📡 Response status: ${response.status}`);
+      console.log(`📡 Response Content-Type:`, response.headers.get('content-type'));
+      
+      // Get raw response text first
+      const responseText = await response.text();
+      console.log(`📡 Raw response (first 500 chars):`, responseText.substring(0, 500));
+      
+      // Check if response is HTML (login page)
+      if (responseText.trim().startsWith('<!DOCTYPE html') || responseText.trim().startsWith('<html')) {
+        console.error('❌ Received HTML instead of JSON - Authentication failed or session expired');
+        throw new Error('Authentication failed - received login page instead of data');
+      }
       
       if (response.status === 404) {
         throw new Error(`Endpoint not found: ${endpoint}`);
       }
       
       if (!response.ok) {
-        const errorText = await response.text();
-        if (endpoint.includes('add') || endpoint.includes('submit')) {
-          console.error(`API Error Response: ${errorText}`);
-        }
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        console.error(`❌ API Error Response: ${responseText}`);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
       }
 
-      const result = await response.json();
-      
-      if (endpoint.includes('add') || endpoint.includes('submit')) {
-        console.log(`API Response for ${endpoint}:`, result);
+      // Try to parse JSON
+      try {
+        const result = JSON.parse(responseText);
+        console.log(`✅ API Response received and parsed successfully`);
+        return result;
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error. Response was:', responseText.substring(0, 1000));
+        throw new Error(`Invalid JSON response from server. Got: ${responseText.substring(0, 100)}`);
       }
       
-      return result;
-    } catch (error) {
-      if (endpoint.includes('add') || endpoint.includes('submit') || endpoint === '/collections') {
-        console.error(`API call failed for ${endpoint}:`, error);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.error(`⏱️ Request timeout for ${endpoint}`);
+        throw new Error('Request timeout');
       }
+      console.error(`❌ API call failed for ${endpoint}:`, error);
       throw error;
     }
   };
@@ -261,12 +284,27 @@ export default function AddCollection() {
   };
 
   const fetchCustomers = async () => {
+    if (isFetchingCustomers) {
+      console.log('⚠️ Already fetching customers, skipping...');
+      return;
+    }
+
     try {
+      setIsFetchingCustomers(true);
       console.log('=== FETCHING CUSTOMERS ===');
+      console.log('Current userCredentials:', userCredentials ? 'Available' : 'Not Available');
+      
+      if (!userCredentials) {
+        console.log('⚠️ User credentials not available, using cache/mock');
+        await loadCustomersFromCache();
+        return;
+      }
+      
+      console.log('✅ Fetching customers from API...');
       const response = await makeAPICall('/clients');
       
       if (response && Array.isArray(response)) {
-        console.log('Customers API response count:', response.length);
+        console.log('✅ Customers API response count:', response.length);
         
         const formattedCustomers: Customer[] = response.map((customer: any, index: number) => ({
           id: customer.code || customer.id?.toString() || index.toString(),
@@ -275,7 +313,7 @@ export default function AddCollection() {
           isManual: false,
         }));
         
-        console.log('Formatted customers count:', formattedCustomers.length);
+        console.log('✅ Formatted customers count:', formattedCustomers.length);
         
         const manualCustomers = await loadManualCustomers();
         const allCustomers = [...formattedCustomers, ...manualCustomers];
@@ -288,17 +326,30 @@ export default function AddCollection() {
         });
         
         await AsyncStorage.setItem('cached_customers', JSON.stringify(formattedCustomers));
-        console.log('Customers saved to cache');
+        console.log('✅ Customers saved to cache');
+        setCustomerFetchAttempts(0);
         return;
       }
     } catch (error) {
-      console.log('Error fetching customers, using cache/mock:', error);
+      console.log('❌ Error fetching customers:', error);
+      
+      if (customerFetchAttempts < MAX_FETCH_ATTEMPTS) {
+        console.log(`Retrying customer fetch... Attempt ${customerFetchAttempts + 1}/${MAX_FETCH_ATTEMPTS}`);
+        setCustomerFetchAttempts(prev => prev + 1);
+        setTimeout(() => {
+          setIsFetchingCustomers(false);
+          fetchCustomers();
+        }, RETRY_DELAY);
+        return;
+      }
+    } finally {
+      setIsFetchingCustomers(false);
     }
     
     await loadCustomersFromCache();
   };
 
-  const loadCustomersFromCache = async () => {
+  const loadCustomersFromCache = async (): Promise<boolean> => {
     try {
       const cachedCustomers = await AsyncStorage.getItem('cached_customers');
       const manualCustomers = await loadManualCustomers();
@@ -306,10 +357,11 @@ export default function AddCollection() {
       if (cachedCustomers) {
         const parsed = JSON.parse(cachedCustomers);
         setCustomers([...parsed, ...manualCustomers]);
-        return;
+        console.log('✅ Loaded customers from cache');
+        return true;
       }
     } catch (cacheError) {
-      console.log('No cached customers found');
+      console.log('⚠️ No cached customers found');
     }
     
     const mockCustomers: Customer[] = [
@@ -325,11 +377,144 @@ export default function AddCollection() {
     const manualCustomers = await loadManualCustomers();
     setCustomers([...mockCustomers, ...manualCustomers]);
     await AsyncStorage.setItem('cached_customers', JSON.stringify(mockCustomers));
+    console.log('✅ Using mock customers');
+    return true;
   };
 
-  const initializeBranches = async () => {
-    setBranches(HARDCODED_BRANCHES);
-    await AsyncStorage.setItem('cached_branches', JSON.stringify(HARDCODED_BRANCHES));
+  const fetchBranches = async () => {
+    if (isFetchingBranches) {
+      console.log('⚠️ Already fetching branches, skipping...');
+      return;
+    }
+
+    try {
+      setIsFetchingBranches(true);
+      console.log('=== FETCHING BRANCHES ===');
+      console.log('API URL:', `${API_BASE_URL}/departments`);
+      
+      if (!userCredentials) {
+        console.log('⚠️ User credentials not available, loading from cache');
+        const cacheLoaded = await loadBranchesFromCache();
+        if (!cacheLoaded) {
+          setTimeout(() => {
+            setIsFetchingBranches(false);
+            if (userCredentials) {
+              fetchBranches();
+            }
+          }, 1000);
+        }
+        return;
+      }
+      
+      console.log('✅ Fetching branches from API with credentials...');
+      
+      const response = await makeAPICall('/departments');
+      
+      console.log('📡 Branches API response:', response);
+      
+      // Handle response with data array (your API structure)
+      let branchesData: any[] = [];
+      
+      if (response && response.data && Array.isArray(response.data)) {
+        console.log('✅ Found branches in response.data:', response.data.length);
+        branchesData = response.data;
+      } else if (response && Array.isArray(response)) {
+        console.log('✅ Found branches in direct response:', response.length);
+        branchesData = response;
+      } else {
+        console.error('❌ Unexpected response structure:', response);
+        throw new Error('Invalid response structure from API');
+      }
+      
+      if (branchesData.length === 0) {
+        throw new Error('No branches data received from API');
+      }
+      
+      // Format branches - handle your specific API structure
+      const formattedBranches: Branch[] = branchesData.map((branch: any, index: number) => {
+        console.log('Processing branch:', branch);
+        
+        return {
+          id: branch.id?.toString() || index.toString(),
+          name: branch.name || branch.department_name || branch.dept_name || 'Unknown Branch',
+          code: branch.code || branch.dept_code || '',
+        };
+      });
+      
+      console.log('✅ Formatted branches:', formattedBranches.length);
+      console.log('First formatted branch:', formattedBranches[0]);
+      
+      if (formattedBranches.length > 0) {
+        setBranches(formattedBranches);
+        await AsyncStorage.setItem('cached_branches', JSON.stringify(formattedBranches));
+        console.log('✅ Branches saved to cache');
+        setBranchFetchAttempts(0);
+        return;
+      } else {
+        throw new Error('No branches formatted successfully');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error fetching branches:', error);
+      
+      const cacheLoaded = await loadBranchesFromCache();
+      
+      if (!cacheLoaded && branchFetchAttempts < MAX_FETCH_ATTEMPTS) {
+        console.log(`Retrying branch fetch... Attempt ${branchFetchAttempts + 1}/${MAX_FETCH_ATTEMPTS}`);
+        setBranchFetchAttempts(prev => prev + 1);
+        
+        setTimeout(() => {
+          setIsFetchingBranches(false);
+          fetchBranches();
+        }, RETRY_DELAY);
+        return;
+      }
+      
+      if (!cacheLoaded && branchFetchAttempts >= MAX_FETCH_ATTEMPTS) {
+        Alert.alert(
+          'Connection Issue',
+          'Unable to load branches. Please check your internet connection and try again.',
+          [
+            {
+              text: 'Retry',
+              onPress: () => {
+                setBranchFetchAttempts(0);
+                setIsFetchingBranches(false);
+                fetchBranches();
+              }
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel'
+            }
+          ]
+        );
+      }
+    } finally {
+      setIsFetchingBranches(false);
+    }
+  };
+
+  const loadBranchesFromCache = async (): Promise<boolean> => {
+    try {
+      const cachedBranches = await AsyncStorage.getItem('cached_branches');
+      
+      if (cachedBranches) {
+        const parsed = JSON.parse(cachedBranches);
+        if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+          console.log('✅ Loaded branches from cache:', parsed.length);
+          console.log('Cache branches:', parsed);
+          setBranches(parsed);
+          return true;
+        }
+      }
+    } catch (cacheError) {
+      console.log('⚠️ Error loading cached branches:', cacheError);
+    }
+    
+    console.log('⚠️ No valid cache available');
+    setBranches([]);
+    return false;
   };
 
   const handleAddManualCustomer = async () => {
@@ -388,20 +573,6 @@ export default function AddCollection() {
     setCustomerSearchText('');
   };
 
-  const formatImageUrl = (imageUrl: string | null): string | null => {
-    if (!imageUrl) return null;
-    
-    if (imageUrl.startsWith('http') || imageUrl.startsWith('data:') || imageUrl.startsWith('file:')) {
-      return imageUrl;
-    }
-    
-    if (imageUrl.startsWith('/')) {
-      return `https://myimc.in${imageUrl}`;
-    }
-    
-    return `https://myimc.in/${imageUrl}`;
-  };
-
   const savePaymentMethodToLocalStorage = async (collectionId: string, paymentMethod: PaymentMethod) => {
     try {
       if (!userCredentials?.userId) return;
@@ -413,10 +584,7 @@ export default function AddCollection() {
       paymentMethods[collectionId] = paymentMethod;
       
       await AsyncStorage.setItem(storageKey, JSON.stringify(paymentMethods));
-      console.log('✅ SUCCESS: Saved payment method to local storage:', { collectionId, paymentMethod });
-      
-      const verify = await AsyncStorage.getItem(storageKey);
-      console.log('✅ Verification - Current payment methods in storage:', verify);
+      console.log('✅ Saved payment method to local storage:', { collectionId, paymentMethod });
     } catch (error) {
       console.error('❌ ERROR saving payment method to local storage:', error);
     }
@@ -522,7 +690,6 @@ export default function AddCollection() {
 
   const handlePaymentMethodChange = useCallback((method: PaymentMethod) => {
     setPaymentMethod(method);
-    // Clear screenshot when switching to cash
     if (method === 'cash') {
       setScreenshot(null);
       setScreenshotBase64(null);
@@ -563,7 +730,6 @@ export default function AddCollection() {
       return;
     }
     
-    // Only require screenshot for non-cash payments
     if (paymentMethod !== 'cash' && (!screenshot || !screenshotBase64)) {
       Alert.alert('Validation Error', 'Please add a payment screenshot/photo.');
       return;
@@ -577,6 +743,82 @@ export default function AddCollection() {
         return;
       }
 
+      if (editData) {
+        console.log('📝 EDIT MODE: Updating existing collection locally');
+        
+        if (userCredentials?.userId) {
+          const storageKey = `collections_${userCredentials.userId}`;
+          const storedCollections = await AsyncStorage.getItem(storageKey);
+          
+          if (storedCollections) {
+            const collections: CollectionEntry[] = JSON.parse(storedCollections);
+            const updatedCollections = collections.map(collection => {
+              if (collection.id === editData.id) {
+                return {
+                  ...collection,
+                  customerId: selectedCustomerId || 'manual',
+                  customerName: customerName,
+                  customerPlace: customerPlace,
+                  branchId: selectedBranchId,
+                  branchName: selectedBranch.name,
+                  amount: amount.trim(),
+                  notes: notes.trim() || 'No notes',
+                  screenshot: screenshot,
+                  paymentMethod: paymentMethod,
+                };
+              }
+              return collection;
+            });
+            
+            await AsyncStorage.setItem(storageKey, JSON.stringify(updatedCollections));
+            console.log('✅ Updated existing collection in local storage:', editData.id);
+          }
+        }
+        
+        if (userCredentials?.userId) {
+          const cachedApiKey = `cached_collections_${userCredentials.userId}`;
+          const cachedCollections = await AsyncStorage.getItem(cachedApiKey);
+          
+          if (cachedCollections) {
+            const apiCollections: CollectionEntry[] = JSON.parse(cachedCollections);
+            const updatedApiCollections = apiCollections.map(collection => {
+              if (collection.id === editData.id) {
+                return {
+                  ...collection,
+                  customerId: selectedCustomerId || 'manual',
+                  customerName: customerName,
+                  customerPlace: customerPlace,
+                  branchId: selectedBranchId,
+                  branchName: selectedBranch.name,
+                  amount: amount.trim(),
+                  notes: notes.trim() || 'No notes',
+                  screenshot: screenshot,
+                  paymentMethod: paymentMethod,
+                };
+              }
+              return collection;
+            });
+            
+            await AsyncStorage.setItem(cachedApiKey, JSON.stringify(updatedApiCollections));
+            console.log('✅ Updated existing collection in API cache:', editData.id);
+          }
+        }
+        
+        await savePaymentMethodToLocalStorage(editData.id, paymentMethod);
+        
+        resetForm();
+        setShowSuccessCard(true);
+        
+        setTimeout(() => {
+          setShowSuccessCard(false);
+          router.back();
+        }, 2000);
+        
+        return;
+      }
+
+      console.log('➕ ADD MODE: Adding new collection via API');
+      
       const formData = new FormData();
 
       if (userCredentials?.userId) {
@@ -586,20 +828,17 @@ export default function AddCollection() {
             
       formData.append('client_name', customerName);
       formData.append('client_place', customerPlace);
-      formData.append('branch', selectedBranch.name);
+      formData.append('department', selectedBranch.name);
       formData.append('amount', amount.trim());
       formData.append('payment_method', paymentMethod);
       
-      const notesToSend = notes.trim() || '';
+      const notesToSend = notes.trim() || 'Payment received';
       formData.append('notes', notesToSend);
-      formData.append('paid_for', notesToSend || 'No notes');
+      formData.append('paid_for', notesToSend);
       
       formData.append('customer_id', selectedCustomerId || 'manual');
       formData.append('branch_id', selectedBranchId);
       
-      console.log('🚀 Submitting with payment method:', paymentMethod);
-      
-      // Only append screenshot for non-cash payments
       if (paymentMethod !== 'cash' && screenshot && screenshotBase64) {
         const imageUri = screenshot;
         const filename = imageUri.split('/').pop() || `screenshot_${Date.now()}.jpg`;
@@ -615,55 +854,66 @@ export default function AddCollection() {
         formData.append('payment_screenshot', imageFile as any);
       }
 
-      const endpoint = editData ? `/collections/edit/${editData.id}` : '/collections/add/';
-      const method = editData ? 'PUT' : 'POST';
-      
-      const response = await makeAPICall(endpoint, method, formData, true);
+      const response = await makeAPICall('/collections/add/', 'POST', formData, true);
+      const collectionId = response?.data?.id?.toString() || response?.id?.toString() || `temp_${Date.now()}`;
       
       console.log('📦 Submission response:', response);
       
       if (response && (response.success !== false)) {
-        let collectionId: string;
-        
-        if (editData) {
-          collectionId = editData.id;
-        } else {
-          collectionId = response.id?.toString() || response.data?.id?.toString() || Date.now().toString();
-          
-          if (!response.id && !response.data?.id) {
-            collectionId = `temp_${Date.now()}`;
-            console.log('⚠️ Using temporary collection ID:', collectionId);
-          }
-        }
-        
         console.log('💾 Saving payment method for collection:', { collectionId, paymentMethod });
-        
         await savePaymentMethodToLocalStorage(collectionId, paymentMethod);
+        
+        if (userCredentials?.userId) {
+          const storageKey = `collections_${userCredentials.userId}`;
+          const storedCollections = await AsyncStorage.getItem(storageKey);
+          const collections: CollectionEntry[] = storedCollections ? JSON.parse(storedCollections) : [];
+          
+          const newCollection: CollectionEntry = {
+            id: collectionId,
+            customerId: selectedCustomerId || 'manual',
+            customerName: customerName,
+            customerPlace: customerPlace,
+            branchId: selectedBranchId,
+            branchName: selectedBranch.name,
+            amount: amount.trim(),
+            notes: notesToSend || 'No notes',
+            screenshot: screenshot,
+            createdAt: new Date().toISOString(),
+            paymentMethod: paymentMethod,
+          };
+          
+          collections.push(newCollection);
+          await AsyncStorage.setItem(storageKey, JSON.stringify(collections));
+          console.log('✅ Added new collection to local storage');
+        }
         
         resetForm();
         setShowSuccessCard(true);
+        
         setTimeout(() => {
           setShowSuccessCard(false);
           router.back();
-        }, 3000);
+        }, 2000);
         
       } else {
-        throw new Error(response?.error || response?.message || 'Failed to add collection');
+        throw new Error(response?.error || response?.message || 'Failed to process collection');
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error submitting form:', error);
       
-      let errorMessage = 'Failed to add collection entry. Please try again.';
+      let errorMessage = editData 
+        ? 'Failed to update collection entry. Please try again.'
+        : 'Failed to add collection entry. Please try again.';
       
       if (error.message.includes('404')) {
-        errorMessage = 'API endpoint not found. Please check with your administrator.';
+        errorMessage = 'API endpoint not found. Please contact your administrator.';
       } else if (error.message.includes('401') || error.message.includes('403')) {
         errorMessage = 'Authentication failed. Please login again.';
-      } else if (error.message.includes('network')) {
+      } else if (error.message.includes('network') || error.message.includes('timeout')) {
         errorMessage = 'Network error. Please check your internet connection.';
-      } else if (error.message.includes('required')) {
-        errorMessage = 'All required fields must be filled. Please check your inputs.';
+      } else if (error.message.includes('Invalid JSON')) {
+        errorMessage = 'Server returned invalid response. Please try again or contact support.';
       }
       
       Alert.alert('Error', errorMessage);
@@ -674,15 +924,57 @@ export default function AddCollection() {
 
   useEffect(() => {
     const init = async () => {
-      const hasCredentials = await initializeUser();
-      if (hasCredentials) {
-        await fetchCustomers();
-        await initializeBranches();
+      console.log('🔄 Initializing AddCollection screen...');
+      
+      try {
+        const credentials = await initializeUser();
+        
+        if (credentials) {
+          console.log('✅ User credentials loaded, waiting for state update...');
+          
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          console.log('📡 Starting data fetch...');
+          
+          await fetchCustomers();
+          await fetchBranches();
+          
+          console.log('✅ Data fetch complete');
+          console.log('Branches state:', branches.length);
+        } else {
+          console.log('❌ No user credentials found');
+        }
+      } catch (error) {
+        console.error('❌ Error during initialization:', error);
+        await loadCustomersFromCache();
+        await loadBranchesFromCache();
+      } finally {
+        setIsInitializing(false);
+        console.log('✅ Initialization complete');
       }
-      setIsInitializing(false);
     };
+    
     init();
   }, []);
+
+  useEffect(() => {
+    if (userCredentials && 
+        branches.length === 0 && 
+        !isInitializing && 
+        !isFetchingBranches &&
+        branchFetchAttempts < MAX_FETCH_ATTEMPTS) {
+      
+      console.log('🔄 Branches empty after init, scheduling retry...');
+      console.log('User credentials available:', !!userCredentials);
+      
+      const retryTimer = setTimeout(() => {
+        console.log('Retrying branch fetch (auto-retry)...');
+        fetchBranches();
+      }, 2000);
+      
+      return () => clearTimeout(retryTimer);
+    }
+  }, [userCredentials, branches.length, isInitializing, isFetchingBranches, branchFetchAttempts]);
 
   const renderCustomerItem = useCallback(({ item }: { item: Customer }) => (
     <TouchableOpacity
@@ -1117,25 +1409,39 @@ export default function AddCollection() {
             />
           </View>
 
-          <FlatList
-            data={filteredBranches}
-            renderItem={renderBranchItem}
-            keyExtractor={branchKeyExtractor}
-            style={styles.fullScreenDropdownList}
-            contentContainerStyle={styles.fullScreenDropdownContent}
-            showsVerticalScrollIndicator={true}
-            keyboardShouldPersistTaps="handled"
-            removeClippedSubviews={true}
-            maxToRenderPerBatch={10}
-            windowSize={5}
-            initialNumToRender={8}
-            ListEmptyComponent={
-              <View style={styles.emptySearchContainer}>
-                <Ionicons name="search-outline" size={48} color="#ccc" />
-                <Text style={styles.emptySearchText}>No branches found</Text>
-              </View>
-            }
-          />
+          {isFetchingBranches && branches.length === 0 ? (
+            <View style={styles.emptySearchContainer}>
+              <ActivityIndicator size="large" color="#4CAF50" />
+              <Text style={styles.emptySearchText}>Loading branches...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredBranches}
+              renderItem={renderBranchItem}
+              keyExtractor={branchKeyExtractor}
+              style={styles.fullScreenDropdownList}
+              contentContainerStyle={styles.fullScreenDropdownContent}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              removeClippedSubviews={true}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              initialNumToRender={8}
+              ListEmptyComponent={
+                <View style={styles.emptySearchContainer}>
+                  <Ionicons name="search-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptySearchText}>
+                    {branches.length === 0 ? 'No branches available. Please check your connection.' : 'No branches found'}
+                  </Text>
+                  {branches.length === 0 && branchFetchAttempts > 0 && (
+                    <Text style={styles.retryText}>
+                      Retrying... ({branchFetchAttempts}/{MAX_FETCH_ATTEMPTS})
+                    </Text>
+                  )}
+                </View>
+              }
+            />
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -1476,6 +1782,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     marginTop: 12,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  retryText: {
+    fontSize: 14,
+    color: '#4CAF50',
+    marginTop: 8,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   dropdownItem: {
     paddingHorizontal: 20,

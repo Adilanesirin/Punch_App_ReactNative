@@ -1,15 +1,22 @@
 {
   "expo": {
-    "name": "My Imc",
-    "slug": "imc-mobileapp",
-    "version": "1.0.0",
+    "name": "My IMC",
+    "owner": "adila2005.2",
+    "slug": "MY-IMC",
+    "version": "3.2",
     "orientation": "portrait",
-    "icon": "./assets/images/imc1.png",
+    "icon": "./assets/images/newwhite.png",
     "scheme": "imcmobileapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/IMCNEW.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ecf6f9"
+    },
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "2",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSExceptionDomains": {
@@ -20,13 +27,30 @@
             }
           }
         }
+      },
+      "splash": {
+        "image": "./assets/images/IMCNEW.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#ecf6f9"
       }
     },
     "android": {
-      "icon": "./assets/images/imc1.png",
+      "versionCode": 2,
+      "icon": "./assets/images/LOGOIMCNEW.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/imc1.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/LOGOIMCNEW.png",
+        "backgroundColor": "#ff6a1a",
+        "monochromeImage": "./assets/images/LOGOIMCNEW.png"
+      },
+      "splash": {
+        "image": "./assets/images/IMCNEW.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#ecf6f9",
+        "mdpi": "./assets/images/IMCNEW.png",
+        "hdpi": "./assets/images/IMCNEW.png",
+        "xhdpi": "./assets/images/IMCNEW.png",
+        "xxhdpi": "./assets/images/IMCNEW.png",
+        "xxxhdpi": "./assets/images/IMCNEW.png"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.adila2005.imcmobileapp",
@@ -43,15 +67,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 300,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
       "expo-secure-store",
       [
         "expo-build-properties",
@@ -65,14 +80,14 @@
     ],
     "experiments": {
       "typedRoutes": true
-    },  
+    },
     "cli": {
       "appVersionSource": "local"
     },
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "5a012d51-45d0-46d2-8131-12a3a2b646d2"
+        "projectId": "2cd831bd-512c-410b-9eaf-36367eaec867"
       }
     }
   }

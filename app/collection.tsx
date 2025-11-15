@@ -55,15 +55,6 @@ type PaymentMethod = 'UPI' | 'cash' | 'cheque' | 'neft';
 const API_BASE_URL = 'https://myimc.in/app4/api';
 const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 
-const HARDCODED_BRANCHES: Branch[] = [
-  { id: '1', name: 'IMC MUKKAM' },
-  { id: '2', name: 'IMCB HO' },
-  { id: '3', name: 'IMCB DEV' },
-  { id: '4', name: 'Sysmac Info System' },
-  { id: '5', name: 'Sysmac Computers'},
-  { id: '6', name: 'DQ Technologies' },
-];
-
 const CARD_COLORS = [
   '#fbf8e7ff',
   '#fcd9e3ff',
@@ -78,7 +69,7 @@ export default function Collection() {
   const [isLoadingData, setIsLoadingData] = useState(false);
   
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [branches, setBranches] = useState<Branch[]>(HARDCODED_BRANCHES);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [collections, setCollections] = useState<CollectionEntry[]>([]);
   
   const [showImageModal, setShowImageModal] = useState(false);
@@ -109,7 +100,7 @@ export default function Collection() {
     }
   };
 
-  // API call helper
+  // API call helper with improved error handling
   const makeAPICall = async (endpoint: string, method: string = 'GET', body: any = null, isFormData: boolean = false) => {
     try {
       if (!userCredentials) {
@@ -121,6 +112,7 @@ export default function Collection() {
         headers: {
           'Authorization': `Basic ${btoa(`${userCredentials.userId}:${userCredentials.password}`)}`,
         },
+        credentials: 'include', // IMPORTANT: Include cookies
       };
 
       if (body && method !== 'GET') {
@@ -135,21 +127,45 @@ export default function Collection() {
         }
       }
 
+      console.log(`📡 Making API call to: ${API_BASE_URL}${endpoint}`);
+      console.log(`📡 Method: ${method}`);
+      console.log(`📡 Auth: ${userCredentials.userId}`);
+      
       const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+      
+      console.log(`📡 Response status: ${response.status}`);
+      console.log(`📡 Response Content-Type:`, response.headers.get('content-type'));
+      
+      // Get raw response text first
+      const responseText = await response.text();
+      console.log(`📡 Raw response (first 500 chars):`, responseText.substring(0, 500));
+      
+      // Check if response is HTML (login page)
+      if (responseText.trim().startsWith('<!DOCTYPE html') || responseText.trim().startsWith('<html')) {
+        console.error('❌ Received HTML instead of JSON - Authentication failed or session expired');
+        throw new Error('Authentication failed - received login page instead of data');
+      }
       
       if (response.status === 404) {
         throw new Error(`Endpoint not found: ${endpoint}`);
       }
       
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        console.error(`❌ API Error Response: ${responseText}`);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
       }
 
-      const result = await response.json();
-      return result;
-    } catch (error) {
-      console.error(`API call failed for ${endpoint}:`, error);
+      // Try to parse JSON
+      try {
+        const result = JSON.parse(responseText);
+        console.log(`✅ API Response received and parsed successfully`);
+        return result;
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error. Response was:', responseText.substring(0, 1000));
+        throw new Error(`Invalid JSON response from server. Got: ${responseText.substring(0, 100)}`);
+      }
+    } catch (error: any) {
+      console.error(`❌ API call failed for ${endpoint}:`, error);
       throw error;
     }
   };
@@ -235,10 +251,68 @@ export default function Collection() {
     await AsyncStorage.setItem('cached_customers', JSON.stringify(mockCustomers));
   };
 
-  // Initialize branches
-  const initializeBranches = async () => {
-    setBranches(HARDCODED_BRANCHES);
-    await AsyncStorage.setItem('cached_branches', JSON.stringify(HARDCODED_BRANCHES));
+  // Fetch branches from API
+  const fetchBranches = async () => {
+    try {
+      console.log('=== FETCHING BRANCHES ===');
+      
+      if (!userCredentials) {
+        console.log('User credentials not available, using cache');
+        await loadBranchesFromCache();
+        return;
+      }
+      
+      const response = await makeAPICall('/departments');
+      
+      // Handle response with data array
+      let branchesData: any[] = [];
+      
+      if (response && response.data && Array.isArray(response.data)) {
+        branchesData = response.data;
+      } else if (response && Array.isArray(response)) {
+        branchesData = response;
+      }
+      
+      if (branchesData.length > 0) {
+        console.log('Branches API response count:', branchesData.length);
+        
+        const formattedBranches: Branch[] = branchesData.map((branch: any, index: number) => ({
+          id: branch.id?.toString() || index.toString(),
+          name: branch.name || branch.department_name || branch.dept_name || 'Unknown Branch',
+          code: branch.code || branch.dept_code || '',
+        }));
+        
+        console.log('Formatted branches count:', formattedBranches.length);
+        
+        setBranches(formattedBranches);
+        await AsyncStorage.setItem('cached_branches', JSON.stringify(formattedBranches));
+        console.log('Branches saved to cache');
+        return;
+      }
+    } catch (error) {
+      console.log('Error fetching branches, using cache:', error);
+    }
+    
+    await loadBranchesFromCache();
+  };
+
+  // Load branches from cache
+  const loadBranchesFromCache = async () => {
+    try {
+      const cachedBranches = await AsyncStorage.getItem('cached_branches');
+      
+      if (cachedBranches) {
+        const parsed = JSON.parse(cachedBranches);
+        setBranches(parsed);
+        console.log('Loaded branches from cache:', parsed.length);
+        return;
+      }
+    } catch (cacheError) {
+      console.log('No cached branches found');
+    }
+    
+    // Fallback to empty array if no cache
+    setBranches([]);
   };
 
   // Get payment method from local storage
@@ -285,15 +359,47 @@ export default function Collection() {
       if (possibleId) {
         const normalizedPossibleId = normalizeUserId(possibleId);
         if (normalizedPossibleId === normalizedCurrentUserId) {
+          console.log(`Match found: ${possibleId} === ${currentUserId}`);
           return true;
         }
       }
     }
     
+    console.log(`No match for collection ID ${collection.id}. created_by: ${collection.created_by}, current user: ${currentUserId}`);
     return false;
   };
 
-  // Fetch collections - FIXED with better user matching
+  // Helper function to get branch name - THIS IS THE KEY FIX
+  const getBranchName = (collection: any): string => {
+    // First, try to get branch name from the API response (multiple possible field names)
+    const apiBranchName = collection.department || 
+                         collection.branch || 
+                         collection.branch_name || 
+                         collection.branchName ||
+                         collection.department_name ||
+                         collection.dept_name;
+    
+    if (apiBranchName && apiBranchName.trim() !== '') {
+      console.log(`Found branch name from API: ${apiBranchName}`);
+      return apiBranchName;
+    }
+    
+    // If no branch name in API response, try to match by branch ID
+    if (collection.branch_id || collection.branchId) {
+      const branchId = (collection.branch_id || collection.branchId)?.toString();
+      const matchedBranch = branches.find(b => b.id === branchId);
+      
+      if (matchedBranch) {
+        console.log(`Found branch by ID ${branchId}: ${matchedBranch.name}`);
+        return matchedBranch.name;
+      }
+    }
+    
+    console.log(`No branch name found for collection ${collection.id}`);
+    return 'Unknown Branch';
+  };
+
+  // Fetch collections - UPDATED with branch name fix
   const fetchCollections = async () => {
     try {
       setIsLoadingCollections(true);
@@ -302,13 +408,18 @@ export default function Collection() {
         await fetchCustomers();
       }
       
+      // Make sure branches are loaded
+      if (branches.length === 0) {
+        await fetchBranches();
+      }
+      
       // First, try to fetch from API
       let apiCollections: CollectionEntry[] = [];
       let apiSuccess = false;
       
       try {
         console.log('Fetching collections from API...');
-        const response = await makeAPICall('/collections');
+        const response = await makeAPICall('/collections/');
         
         if (response && response.data && Array.isArray(response.data)) {
           console.log(`API returned ${response.data.length} total collections`);
@@ -321,36 +432,17 @@ export default function Collection() {
           
           // Filter collections by logged-in user
           const userCollections = response.data.filter((collection: any) => {
-            const matches = isUserCollection(collection, userCredentials?.userId || '');
-            
-            if (matches) {
-              console.log(`✓ Collection ${collection.id} matches user`);
-            }
-            
-            return matches;
+            return isUserCollection(collection, userCredentials?.userId || '');
           });
           
           console.log(`Filtered ${userCollections.length} collections for user ${userCredentials?.userId}`);
-          
-          // If no matches found, show available user IDs for debugging
-          if (userCollections.length === 0 && response.data.length > 0) {
-            const availableUserIds = new Set<string>();
-            response.data.forEach((c: any) => {
-              if (c.user_id) availableUserIds.add(c.user_id.toString());
-              if (c.userId) availableUserIds.add(c.userId.toString());
-              if (c.user) availableUserIds.add(c.user.toString());
-              if (c.user_email) availableUserIds.add(c.user_email.toString());
-            });
-            console.log('Available user IDs in collections:', Array.from(availableUserIds));
-            console.log('Current user ID:', userCredentials?.userId);
-          }
           
           // Process each collection
           for (let index = 0; index < userCollections.length; index++) {
             const collection = userCollections[index];
             
             // Handle screenshot URL
-            let screenshotUrl = collection.payment_screenshot || collection.screenshot || collection.screenshot_url;
+            let screenshotUrl = collection.screenshot_url || collection.payment_screenshot || collection.screenshot;
             
             if (screenshotUrl && !screenshotUrl.startsWith('http') && !screenshotUrl.startsWith('data:') && !screenshotUrl.startsWith('file:')) {
               if (screenshotUrl.startsWith('/')) {
@@ -360,10 +452,8 @@ export default function Collection() {
               }
             }
             
-            // Handle notes
-            const displayNotes = collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
-              ? collection.notes 
-              : 'No notes';
+            // Handle notes - check paid_for field first
+            const displayNotes = collection.paid_for || collection.notes || 'No notes';
             
             // Handle customer place
             let customerPlace = collection.client_place || 
@@ -426,13 +516,16 @@ export default function Collection() {
             // Extract user name from API response
             const userName = collection.user_name || collection.userName || collection.user || 'Unknown User';
             
+            // GET BRANCH NAME - THIS IS THE FIX
+            const branchName = getBranchName(collection);
+            
             apiCollections.push({
               id: collectionId,
               customerId: collection.customer_id?.toString() || collection.client_id?.toString() || '',
               customerName: collection.client_name || collection.customer_name || 'Unknown Customer',
               customerPlace: customerPlace || '',
-              branchId: collection.branch_id?.toString() || '',
-              branchName: collection.branch || collection.branch_name || 'Unknown Branch',
+              branchId: collection.branch_id?.toString() || collection.branchId?.toString() || '',
+              branchName: branchName,  // Use the helper function result
               amount: collection.amount?.toString() || '0',
               notes: displayNotes,
               screenshot: screenshotUrl,
@@ -468,11 +561,9 @@ export default function Collection() {
       let mergedCollections: CollectionEntry[] = [];
       
       if (apiSuccess && apiCollections.length > 0) {
-        // If API was successful, use API collections as primary source
         mergedCollections = apiCollections;
         console.log(`Using ${apiCollections.length} collections from API`);
         
-        // Add any cached collections that don't exist in API response
         const apiIds = new Set(apiCollections.map(c => c.id));
         const uniqueCachedCollections = cachedCollections.filter(c => !apiIds.has(c.id));
         
@@ -481,18 +572,16 @@ export default function Collection() {
           mergedCollections = [...mergedCollections, ...uniqueCachedCollections];
         }
         
-        // Save merged collections to cache
         if (userCredentials?.userId) {
           const storageKey = `collections_${userCredentials.userId}`;
           await AsyncStorage.setItem(storageKey, JSON.stringify(mergedCollections));
         }
       } else {
-        // If API failed or returned no results, use cached collections
         console.log(`Using ${cachedCollections.length} cached collections only`);
         mergedCollections = cachedCollections;
       }
       
-      // Fix customer places for all collections
+      // Fix customer places and branch names for all collections
       const fixedCollections = mergedCollections.map((collection) => {
         let customerPlace = collection.customerPlace;
         if (!customerPlace || customerPlace.trim() === '') {
@@ -502,9 +591,20 @@ export default function Collection() {
           }
         }
         
+        // Fix branch name if it's "Unknown Branch"
+        let branchName = collection.branchName;
+        if (branchName === 'Unknown Branch' && collection.branchId) {
+          const branchData = branches.find(b => b.id === collection.branchId);
+          if (branchData) {
+            branchName = branchData.name;
+            console.log(`Fixed branch name for collection ${collection.id}: ${branchName}`);
+          }
+        }
+        
         return {
           ...collection,
           customerPlace: customerPlace || '',
+          branchName: branchName,
           notes: collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
             ? collection.notes 
             : 'No notes',
@@ -525,7 +625,6 @@ export default function Collection() {
       
     } catch (error) {
       console.error('Error in fetchCollections:', error);
-      // Try to load from cache as fallback
       await loadCachedCollections();
     } finally {
       setIsLoadingCollections(false);
@@ -554,9 +653,19 @@ export default function Collection() {
             }
           }
           
+          // Fix branch name
+          let branchName = collection.branchName;
+          if (branchName === 'Unknown Branch' && collection.branchId) {
+            const branchData = branches.find(b => b.id === collection.branchId);
+            if (branchData) {
+              branchName = branchData.name;
+            }
+          }
+          
           return {
             ...collection,
             customerPlace: customerPlace || '',
+            branchName: branchName,
             notes: collection.notes && collection.notes.trim() !== '' && collection.notes !== 'Collection payment' 
               ? collection.notes 
               : 'No notes',
@@ -585,14 +694,14 @@ export default function Collection() {
     setImageErrors(new Set());
     setIsLoadingCollections(true);
     
+    await fetchBranches(); // Make sure branches are loaded first
     await fetchCustomers();
-    await initializeBranches();
     await fetchCollections();
     
     setRefreshing(false);
   }, [userCredentials]);
 
-  // Handle edit collection - navigate to add collection page with edit data
+  // Handle edit collection
   const handleEditCollection = useCallback((collection: CollectionEntry) => {
     router.push({
       pathname: '/addcollection',
@@ -618,8 +727,8 @@ export default function Collection() {
         setIsLoadingData(true);
         setIsLoadingCollections(true);
         try {
+          await fetchBranches(); // Load branches first
           await fetchCustomers();
-          await initializeBranches();
           await fetchCollections();
         } catch (error) {
           console.error('Error loading data:', error);
@@ -852,7 +961,7 @@ export default function Collection() {
               <Ionicons name="close" size={24} color="#ffffff" />
             </TouchableOpacity>
           </View>
-          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );

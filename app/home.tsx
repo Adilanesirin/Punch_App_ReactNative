@@ -503,7 +503,7 @@ export default function Home() {
           {/* Footer */}
           <View style={homeStyles.footer}>
             <Text style={homeStyles.footerText}>Powered by IMC Business Solutions</Text>
-            <Text style={homeStyles.footerVersion}>v2</Text>
+            <Text style={homeStyles.footerVersion}>v3.1</Text>
           </View>
         </ScrollView>
 
